@@ -1,6 +1,6 @@
 # Tableau Pulse Utilities
 
-A comprehensive web application suite for managing Tableau Pulse with three powerful utilities, built with Python Flask and featuring a modern, responsive UI.
+A comprehensive web application suite for managing Tableau Pulse with five powerful utilities, built with Python Flask and featuring a modern, responsive UI.
 
 ## 🚀 Available Utilities
 
@@ -21,6 +21,20 @@ Copy definitions with new datasources and migrate all metrics + followers
 - Creates new definitions with different datasources
 - Migrates all associated metrics and their followers
 - Optional cleanup of old metric followers
+
+### 4. ⚙️ Update User Preferences
+Update Tableau Pulse user preferences for single or multiple users
+- Configure cadence settings (daily, weekly, monthly)
+- Manage email and Slack channel preferences
+- Set metric grouping and sorting options
+- Bulk update preferences for multiple users
+
+### 5. ✅ Check Certified Metrics
+View all certified metrics and optionally remove certifications from unauthorized users
+- List all metric definitions with certification status
+- Filter by group name (automatic group ID lookup)
+- Automatically remove certifications from non-group members
+- Comprehensive reporting with certification details
 
 ## ✨ Common Features
 
@@ -143,6 +157,43 @@ hello-world-app/
 
 4. **Execute**: Click "🔄 Swap Datasources" and monitor progress
 
+### ⚙️ Using Update User Preferences
+1. **Server Connection**:
+   - Enter Tableau Server URL and API version
+   - Provide site content URL and authentication credentials
+
+2. **Users Configuration**:
+   - Enter user email addresses (comma-separated or one per line)
+
+3. **Pulse Preferences**:
+   - Set cadence (daily, weekly, monthly)
+   - Configure email and Slack channel delivery
+   - Set metric grouping and sort order preferences
+
+4. **Execute**: Click "⚙️ Update User Preferences" and monitor progress
+
+### ✅ Using Check Certified Metrics
+1. **Server Connection**:
+   - Enter Tableau Server URL and API version
+   - Provide site content URL and authentication credentials
+
+2. **Group Configuration (Optional)**:
+   - Enter a Group Name to filter certifications by group membership
+   - The tool will automatically look up the group ID from the name
+   - Leave empty to view all certified metrics without filtering
+
+3. **Certification Removal (Optional)**:
+   - Check the box to automatically remove certifications from metrics certified by non-group members
+   - Requires a Group Name to be specified
+
+4. **Execute**: Click "✅ Check Certified Metrics" and view the results
+
+   The tool will:
+   - List all metric definitions with certification status
+   - Show which metrics were certified by group members vs. non-members (if group specified)
+   - Display certifier information and certification dates
+   - Optionally remove certifications from unauthorized users
+
 ## 🔌 API Endpoints
 
 - `GET /` - Main utilities selection interface
@@ -150,6 +201,8 @@ hello-world-app/
 - `POST /copy-definitions` - Copy pulse definitions between sites
 - `POST /manage-followers` - Bulk add/remove followers from metrics
 - `POST /swap-datasources` - Copy definitions with new datasources
+- `POST /update-preferences` - Update user preferences for Pulse
+- `POST /check-certified-metrics` - Check certified metrics and remove unauthorized certifications
 
 ## Customization
 
@@ -194,12 +247,14 @@ hello-world-app/
 
 ## 🎯 What's Included
 
-This application suite converts three original command-line Python scripts into a unified, user-friendly web interface:
+This application suite converts five original command-line Python scripts into a unified, user-friendly web interface:
 
 ### Original Scripts Converted:
 1. **Pulse Definition Copier** - Copy definitions between sites
 2. **Bulk Manage Followers** - Add/remove followers from metrics  
 3. **Swap Datasources** - Copy definitions with new datasources
+4. **Update User Preferences** - Update Pulse user preferences
+5. **Check Certified Metrics** - View and manage metric certifications
 
 ### Benefits of the Web Interface:
 - **🌐 No CLI Required**: Everything runs through the web browser
@@ -218,4 +273,4 @@ This application suite converts three original command-line Python scripts into 
 - Beautiful, responsive UI with animations
 - Support for both JSON and XML API authentication methods
 
-Transform your Tableau Pulse management workflow with this powerful web application suite! 🚀📊👥🔄
+Transform your Tableau Pulse management workflow with this powerful web application suite! 🚀📊👥🔄⚙️✅

@@ -359,6 +359,183 @@ def build_definition_payload_for_swap(definition_a, datasource_id):
     return payload
 
 # ------------------------------
+# Check Certified Metrics Functions
+# ------------------------------
+
+def get_all_groups_rest(server_url, auth_token, site_id, api_version):
+    """Get all groups on the site."""
+    groups_url = f"{server_url}/api/{api_version}/sites/{site_id}/groups"
+    
+    headers = {
+        'X-Tableau-Auth': auth_token,
+        'Accept': 'application/json'
+    }
+    
+    try:
+        response = requests.get(groups_url, headers=headers, verify=True)
+        
+        if response.status_code != 200:
+            return {'success': False, 'error': f"Failed to get groups. Status: {response.status_code}"}
+        
+        groups_data = response.json()
+        groups = groups_data.get('groups', {}).get('group', [])
+        
+        # Handle single group response
+        if isinstance(groups, dict):
+            groups = [groups]
+        
+        group_list = []
+        for group in groups:
+            group_list.append({
+                'id': group.get('id', ''),
+                'name': group.get('name', ''),
+                'domain': group.get('domain', {}).get('name', 'Local') if group.get('domain') else 'Local'
+            })
+        
+        return {'success': True, 'groups': group_list}
+        
+    except Exception as e:
+        return {'success': False, 'error': f"Error getting groups: {str(e)}"}
+
+def get_users_in_group_rest(server_url, auth_token, site_id, group_id, api_version):
+    """Get all users in a specific group."""
+    users_url = f"{server_url}/api/{api_version}/sites/{site_id}/groups/{group_id}/users"
+    
+    headers = {
+        'X-Tableau-Auth': auth_token,
+        'Accept': 'application/json'
+    }
+    
+    try:
+        response = requests.get(users_url, headers=headers, verify=True)
+        
+        if response.status_code != 200:
+            return {'success': False, 'error': f"Failed to get users. Status: {response.status_code}"}
+        
+        users_data = response.json()
+        users = users_data.get('users', {}).get('user', [])
+        
+        # Handle single user response
+        if isinstance(users, dict):
+            users = [users]
+        
+        user_list = []
+        for user in users:
+            user_list.append({
+                'id': user.get('id', ''),
+                'name': user.get('name', ''),
+                'email': user.get('email', ''),
+                'site_role': user.get('siteRole', ''),
+                'full_name': user.get('fullName', '')
+            })
+        
+        return {'success': True, 'users': user_list}
+        
+    except Exception as e:
+        return {'success': False, 'error': f"Error getting users: {str(e)}"}
+
+def get_metric_definitions_rest(server_url, auth_token):
+    """Get all metric definitions including certification status."""
+    endpoint = f"{server_url}/api/-/pulse/definitions"
+    
+    headers = {
+        'X-Tableau-Auth': auth_token,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    }
+    
+    try:
+        response = requests.get(endpoint, headers=headers, verify=True)
+        
+        if response.status_code == 200:
+            response_data = response.json()
+            return parse_metric_definitions(response_data)
+        else:
+            return {'success': False, 'error': f"Failed to get definitions. Status: {response.status_code}"}
+            
+    except Exception as e:
+        return {'success': False, 'error': f"Error getting definitions: {str(e)}"}
+
+def parse_metric_definitions(data):
+    """Parse metric definitions response."""
+    try:
+        definitions = []
+        certified_count = 0
+        
+        # Extract metric definitions from response
+        metric_definitions = []
+        if 'metric_definitions' in data:
+            metric_definitions = data['metric_definitions']
+        elif 'definitions' in data:
+            metric_definitions = data['definitions']
+        elif 'metricDefinitions' in data:
+            metric_definitions = data['metricDefinitions']
+        elif isinstance(data, list):
+            metric_definitions = data
+        
+        for definition in metric_definitions:
+            # Extract certification information
+            certification = definition.get('certification', {})
+            is_certified = certification.get('is_certified', False)
+            
+            if is_certified:
+                certified_count += 1
+            
+            # Extract metadata
+            metadata = definition.get('metadata', {})
+            certifier_luid = certification.get('modified_by', '')
+            
+            definition_info = {
+                'id': metadata.get('id', ''),
+                'name': metadata.get('name', ''),
+                'certified': is_certified,
+                'certification_note': certification.get('note', ''),
+                'certified_by': certification.get('modified_by', 'Unknown'),
+                'certified_at': certification.get('modified_at', ''),
+                'certified_by_luid': certifier_luid
+            }
+            
+            definitions.append(definition_info)
+        
+        return {
+            'success': True,
+            'total_definitions': len(definitions),
+            'certified_count': certified_count,
+            'uncertified_count': len(definitions) - certified_count,
+            'definitions': definitions
+        }
+        
+    except Exception as e:
+        return {'success': False, 'error': f"Error parsing definitions: {str(e)}"}
+
+def remove_certification_rest(server_url, auth_token, definition_id):
+    """Remove certification from a metric definition."""
+    update_url = f"{server_url}/api/-/pulse/definitions/{definition_id}"
+    
+    headers = {
+        'X-Tableau-Auth': auth_token,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    }
+    
+    request_body = {
+        "certification": {
+            "is_certified": False
+        }
+    }
+    
+    try:
+        response = requests.patch(update_url, headers=headers, json=request_body, verify=True)
+        
+        if response.status_code == 200:
+            return {'success': True}
+        else:
+            return {'success': False, 'error': f"Failed to remove certification. Status: {response.status_code}"}
+            
+    except Exception as e:
+        return {'success': False, 'error': f"Error removing certification: {str(e)}"}
+
+# ------------------------------
 # User Preferences Functions (from Update_Pulse_User_Preferences.py)
 # ------------------------------
 
@@ -1221,6 +1398,198 @@ def update_preferences():
             'successful_updates': len(successful_updates),
             'failed_updates': len(failed_updates),
             'not_found_users': len(not_found_users)
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Unexpected error: {str(e)}'
+        })
+
+@app.route('/check-certified-metrics', methods=['POST'])
+def check_certified_metrics():
+    """Check certified metrics and optionally remove certifications"""
+    try:
+        data = request.json
+        results = []
+        
+        # Extract form data
+        server_url = data.get('server_url', '').rstrip('/')
+        api_version = data.get('api_version', '3.26')
+        site_content_url = data.get('site_content_url', '')
+        auth_method = data.get('auth_method')
+        group_name = data.get('group_name', '').strip()
+        remove_non_group_certs = data.get('remove_non_group_certs') == 'true'
+        
+        # Authentication data
+        username = data.get('username')
+        password = data.get('password')
+        pat_name = data.get('pat_name')
+        pat_token = data.get('pat_token')
+        
+        # Validate required fields
+        if not all([server_url, auth_method]):
+            return jsonify({
+                'success': False,
+                'error': 'Missing required fields: server_url and auth_method are required'
+            })
+        
+        # Authenticate
+        results.append({'success': True, 'message': '🔐 Authenticating with Tableau Server...'})
+        
+        auth_result = authenticate_tableau_rest(
+            server_url, api_version, site_content_url, auth_method,
+            username, password, pat_name, pat_token
+        )
+        
+        if not auth_result['success']:
+            return jsonify({
+                'success': False,
+                'error': f"Authentication failed: {auth_result['error']}"
+            })
+        
+        auth_token = auth_result['auth_token']
+        site_id = auth_result['site_id']
+        
+        results.append({'success': True, 'message': '✅ Authentication successful!'})
+        
+        # Get all groups
+        results.append({'success': True, 'message': '👥 Getting all groups...'})
+        groups_result = get_all_groups_rest(server_url, auth_token, site_id, api_version)
+        
+        if not groups_result['success']:
+            return jsonify({
+                'success': False,
+                'error': f"Failed to get groups: {groups_result['error']}"
+            })
+        
+        all_groups = groups_result['groups']
+        results.append({'success': True, 'message': f'✅ Found {len(all_groups)} groups on the site'})
+        
+        # Look up group ID from group name if provided
+        group_id = None
+        group_users = []
+        if group_name:
+            results.append({'success': True, 'message': f'🔍 Looking up group: {group_name}...'})
+            
+            # Find group by name (case-insensitive)
+            matching_group = None
+            for group in all_groups:
+                if group['name'].lower() == group_name.lower():
+                    matching_group = group
+                    break
+            
+            if not matching_group:
+                return jsonify({
+                    'success': False,
+                    'error': f"Group '{group_name}' not found. Please check the group name and try again."
+                })
+            
+            group_id = matching_group['id']
+            results.append({'success': True, 'message': f'✅ Found group: {matching_group["name"]} (ID: {group_id})'})
+            
+            # Get users in the specified group
+            results.append({'success': True, 'message': f'👥 Getting users in group "{matching_group["name"]}"...'})
+            users_result = get_users_in_group_rest(server_url, auth_token, site_id, group_id, api_version)
+            
+            if not users_result['success']:
+                return jsonify({
+                    'success': False,
+                    'error': f"Failed to get group users: {users_result['error']}"
+                })
+            
+            group_users = users_result['users']
+            results.append({'success': True, 'message': f'✅ Found {len(group_users)} users in group "{matching_group["name"]}"'})
+        
+        # Get metric definitions
+        results.append({'success': True, 'message': '📊 Getting metric definitions...'})
+        definitions_result = get_metric_definitions_rest(server_url, auth_token)
+        
+        if not definitions_result['success']:
+            return jsonify({
+                'success': False,
+                'error': f"Failed to get metric definitions: {definitions_result['error']}"
+            })
+        
+        total_defs = definitions_result['total_definitions']
+        certified_count = definitions_result['certified_count']
+        uncertified_count = definitions_result['uncertified_count']
+        definitions = definitions_result['definitions']
+        
+        results.append({'success': True, 'message': f'📊 Found {total_defs} metric definitions'})
+        results.append({'success': True, 'message': f'✅ Certified: {certified_count}'})
+        results.append({'success': True, 'message': f'❌ Uncertified: {uncertified_count}'})
+        
+        # Find metrics certified by group members vs non-group members
+        if group_name and group_users:
+            group_luids = {user.get('id', '') for user in group_users}
+            group_certified = [d for d in definitions if d.get('certified', False) and d.get('certified_by_luid', '') in group_luids]
+            non_group_certified = [d for d in definitions if d.get('certified', False) and d.get('certified_by_luid', '') not in group_luids]
+            
+            results.append({'success': True, 'message': f'👥 Certified by group members: {len(group_certified)}'})
+            results.append({'success': True, 'message': f'⚠️ Certified by non-group members: {len(non_group_certified)}'})
+            
+            # List certified metrics
+            results.append({'success': True, 'message': '\n📋 CERTIFIED METRICS:'})
+            results.append({'success': True, 'message': '=' * 60})
+            
+            for definition in [d for d in definitions if d.get('certified', False)]:
+                certifier_luid = definition.get('certified_by_luid', '')
+                group_status = "✅ IN GROUP" if certifier_luid in group_luids else "❌ NOT IN GROUP"
+                
+                results.append({
+                    'success': True,
+                    'message': f"📊 {definition['name']}",
+                    'metadata': {
+                        'id': definition['id'],
+                        'certified_by': definition['certified_by'],
+                        'group_status': group_status,
+                        'certified_at': definition.get('certified_at', ''),
+                        'in_group': certifier_luid in group_luids
+                    }
+                })
+            
+            # Remove certifications if requested
+            if remove_non_group_certs and non_group_certified:
+                results.append({'success': True, 'message': f'\n🗑️ Removing {len(non_group_certified)} certifications from non-group members...'})
+                
+                success_count = 0
+                for definition in non_group_certified:
+                    remove_result = remove_certification_rest(server_url, auth_token, definition['id'])
+                    if remove_result['success']:
+                        results.append({'success': True, 'message': f"✅ Removed certification from: {definition['name']}"})
+                        success_count += 1
+                    else:
+                        results.append({'success': False, 'message': f"❌ Failed to remove certification from: {definition['name']}"})
+                
+                results.append({'success': True, 'message': f'\n📊 Removed {success_count}/{len(non_group_certified)} certifications'})
+        else:
+            # List all certified metrics without group filtering
+            results.append({'success': True, 'message': '\n📋 CERTIFIED METRICS:'})
+            results.append({'success': True, 'message': '=' * 60})
+            
+            for definition in [d for d in definitions if d.get('certified', False)]:
+                results.append({
+                    'success': True,
+                    'message': f"📊 {definition['name']}",
+                    'metadata': {
+                        'id': definition['id'],
+                        'certified_by': definition['certified_by'],
+                        'certified_at': definition.get('certified_at', '')
+                    }
+                })
+        
+        # Summary
+        summary = f"Found {total_defs} metric definitions ({certified_count} certified, {uncertified_count} uncertified)"
+        
+        return jsonify({
+            'success': True,
+            'results': results,
+            'summary': summary,
+            'groups': all_groups,
+            'total_definitions': total_defs,
+            'certified_count': certified_count,
+            'uncertified_count': uncertified_count
         })
         
     except Exception as e:

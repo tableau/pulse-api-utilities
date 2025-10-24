@@ -501,6 +501,7 @@
             <button class="tab-button" onclick="showTab('manage-followers')">👥 Manage Followers</button>
             <button class="tab-button" onclick="showTab('swap-datasources')">🔄 Swap Datasources</button>
             <button class="tab-button" onclick="showTab('update-preferences')">⚙️ Update Preferences</button>
+            <button class="tab-button" onclick="showTab('check-certified')">✅ Check Certified</button>
         </div>
 
         <!-- Home Tab - Utility Selector -->
@@ -554,6 +555,18 @@
                             <span>📅 Set cadence preferences</span>
                             <span>📧 Configure email/Slack channels</span>
                             <span>📊 Set metric grouping options</span>
+                        </div>
+                        <button class="utility-button">Get Started</button>
+                    </div>
+
+                    <div class="utility-card" onclick="showTab('check-certified')">
+                        <div class="utility-icon">✅</div>
+                        <h3>Check Certified Metrics</h3>
+                        <p>View all certified metrics and optionally remove certifications from unauthorized users</p>
+                        <div class="utility-features">
+                            <span>✅ View all certified metrics</span>
+                            <span>👥 Check certifier group membership</span>
+                            <span>🗑️ Remove unauthorized certifications</span>
                         </div>
                         <button class="utility-button">Get Started</button>
                     </div>
@@ -926,12 +939,86 @@
             </form>
         </div>
 
+        <!-- Check Certified Metrics Tab -->
+        <div id="check-certified" class="tab-content">
+            <div class="form-header">
+                <h2>✅ Check Certified Metrics</h2>
+                <p>View all certified metrics and optionally remove certifications from users not in a specified group</p>
+                <button type="button" class="button secondary back-button" onclick="showTab('home')">← Back to Home</button>
+            </div>
+            
+            <form id="checkCertifiedForm" onsubmit="submitCheckCertified(event)">
+                <!-- Server Connection Section -->
+                <div class="form-section">
+                    <h3>🔗 Server Connection</h3>
+                    <div class="form-row">
+                        <input type="url" id="cert_server_url" name="server_url" placeholder="Tableau Server URL (e.g., https://your-server.com)" required>
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="cert_api_version" name="api_version" value="3.26" placeholder="API Version (e.g., 3.26)" pattern="^\d+\.\d+$">
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="cert_site_content_url" name="site_content_url" placeholder="Site Content URL (blank for Default)">
+                    </div>
+                    <div class="form-row">
+                        <select id="cert_auth_method" name="auth_method" onchange="toggleAuthFields('cert')" required>
+                            <option value="">Select Authentication Method</option>
+                            <option value="password">Username/Password</option>
+                            <option value="pat">Personal Access Token</option>
+                        </select>
+                    </div>
+                    <div id="cert_user_auth" class="auth-fields" style="display: none;">
+                        <div class="form-row">
+                            <input type="text" id="cert_username" name="username" placeholder="Username">
+                        </div>
+                        <div class="form-row">
+                            <input type="password" id="cert_password" name="password" placeholder="Password">
+                        </div>
+                    </div>
+                    <div id="cert_pat_auth" class="auth-fields" style="display: none;">
+                        <div class="form-row">
+                            <input type="text" id="cert_pat_name" name="pat_name" placeholder="PAT Name">
+                        </div>
+                        <div class="form-row">
+                            <input type="password" id="cert_pat_token" name="pat_token" placeholder="PAT Value">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Group Configuration Section -->
+                <div class="form-section">
+                    <h3>👥 Group Configuration (Optional)</h3>
+                    <div class="form-row">
+                        <input type="text" id="cert_group_name" name="group_name" placeholder="Group Name (Optional - Leave empty to skip group filtering)">
+                        <small>💡 If you provide a Group Name, the tool will automatically look up the group and check which certified metrics were certified by users in this group vs. users not in the group</small>
+                    </div>
+                </div>
+
+                <!-- Action Configuration Section -->
+                <div class="form-section">
+                    <h3>🗑️ Certification Removal (Optional)</h3>
+                    <div class="form-row">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="cert_remove_non_group" name="remove_non_group_certs" value="true">
+                            <span class="checkbox-text">Remove certifications from metrics certified by non-group members</span>
+                        </label>
+                        <small>⚠️ Check this box to automatically remove certifications from metrics that were certified by users NOT in the specified group. Requires a Group Name to be specified above.</small>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="button">✅ Check Certified Metrics</button>
+                    <button type="button" class="button secondary" onclick="showTab('home')">← Back to Home</button>
+                </div>
+            </form>
+        </div>
+
         <!-- Results section -->
         <div id="results" class="results-section" style="display: none;">
-            <h3>📊 Copy Results</h3>
+            <h3 id="resultsTitle">📊 Results</h3>
             <div id="progress" class="progress-container"></div>
             <div id="copyResults" class="copy-results"></div>
-            <button class="button" onclick="resetForm()">Copy Another Set</button>
+            <button class="button" onclick="resetForm()">Start Another Task</button>
         </div>
 
         <div id="apiResponse" class="api-response"></div>
@@ -1029,7 +1116,7 @@
             
             // Clear previous results and show new progress
             clearPreviousResults();
-            showProgress('🚀 Starting copy process...');
+            showProgress('🚀 Starting copy process...', '📊 Copy Results');
             
             try {
                 const response = await fetch('/copy-definitions', {
@@ -1043,13 +1130,13 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    showResults(result);
+                    showResults(result, '✅ Copy process completed!');
                 } else {
-                    showError(result.error || 'Unknown error occurred');
+                    showError(result.error || 'Unknown error occurred', '❌ Copy process failed');
                 }
             } catch (error) {
                 console.error('Error:', error);
-                showError('Failed to communicate with server: ' + error.message);
+                showError('Failed to communicate with server: ' + error.message, '❌ Copy process failed');
             }
         }
 
@@ -1061,7 +1148,7 @@
             
             // Clear previous results and show new progress
             clearPreviousResults();
-            showProgress('👥 Managing followers...');
+            showProgress('👥 Managing followers...', '👥 Follower Management Results');
             
             try {
                 const response = await fetch('/manage-followers', {
@@ -1075,13 +1162,13 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    showResults(result);
+                    showResults(result, '✅ Follower management completed!');
                 } else {
-                    showError(result.error || 'Unknown error occurred');
+                    showError(result.error || 'Unknown error occurred', '❌ Follower management failed');
                 }
             } catch (error) {
                 console.error('Error:', error);
-                showError('Failed to communicate with server: ' + error.message);
+                showError('Failed to communicate with server: ' + error.message, '❌ Follower management failed');
             }
         }
 
@@ -1093,7 +1180,7 @@
             
             // Clear previous results and show new progress
             clearPreviousResults();
-            showProgress('🔄 Swapping datasources...');
+            showProgress('🔄 Swapping datasources...', '🔄 Datasource Swap Results');
             
             try {
                 const response = await fetch('/swap-datasources', {
@@ -1107,33 +1194,36 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    showResults(result);
+                    showResults(result, '✅ Datasource swap completed!');
                 } else {
-                    showError(result.error || 'Unknown error occurred');
+                    showError(result.error || 'Unknown error occurred', '❌ Datasource swap failed');
                 }
             } catch (error) {
                 console.error('Error:', error);
-                showError('Failed to communicate with server: ' + error.message);
+                showError('Failed to communicate with server: ' + error.message, '❌ Datasource swap failed');
             }
         }
 
         // Show progress
-        function showProgress(message) {
+        function showProgress(message, title = '📊 Results') {
             const progressDiv = document.getElementById('progress');
+            const resultsTitle = document.getElementById('resultsTitle');
+            
             progressDiv.innerHTML = `
                 <div class="loading"></div>
                 <span style="margin-left: 10px;">${message}</span>
             `;
             
+            resultsTitle.textContent = title;
             document.getElementById('results').style.display = 'block';
         }
 
         // Show results
-        function showResults(result) {
+        function showResults(result, completionMessage = '✅ Process completed!') {
             const progressDiv = document.getElementById('progress');
             const resultsDiv = document.getElementById('copyResults');
             
-            progressDiv.innerHTML = '✅ Copy process completed!';
+            progressDiv.innerHTML = completionMessage;
             
             let resultsHTML = '';
             if (result.results && result.results.length > 0) {
@@ -1162,11 +1252,11 @@
         }
 
         // Show error
-        function showError(errorMessage) {
+        function showError(errorMessage, failureMessage = '❌ Process failed') {
             const progressDiv = document.getElementById('progress');
             const resultsDiv = document.getElementById('copyResults');
             
-            progressDiv.innerHTML = '❌ Copy process failed';
+            progressDiv.innerHTML = failureMessage;
             resultsDiv.innerHTML = `
                 <div class="result-item error">
                     <strong>Error:</strong><br>
@@ -1185,7 +1275,7 @@
             
             // Clear previous results and show new progress
             clearPreviousResults();
-            showProgress('⚙️ Updating user preferences...');
+            showProgress('⚙️ Updating user preferences...', '⚙️ User Preferences Update Results');
             
             try {
                 const response = await fetch('/update-preferences', {
@@ -1199,20 +1289,52 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    showResults(result.results);
+                    showResults(result, '✅ User preferences update completed!');
                 } else {
-                    showError(result.error);
+                    showError(result.error, '❌ User preferences update failed');
                 }
             } catch (error) {
                 console.error('Error:', error);
-                showError('Failed to communicate with server: ' + error.message);
+                showError('Failed to communicate with server: ' + error.message, '❌ User preferences update failed');
+            }
+        }
+
+        async function submitCheckCertified(event) {
+            event.preventDefault();
+            
+            const formData = new FormData(event.target);
+            const data = Object.fromEntries(formData.entries());
+            
+            // Clear previous results and show new progress
+            clearPreviousResults();
+            showProgress('✅ Checking certified metrics...', '✅ Certification Check Results');
+            
+            try {
+                const response = await fetch('/check-certified-metrics', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    showResults(result, '✅ Certification check completed!');
+                } else {
+                    showError(result.error, '❌ Certification check failed');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showError('Failed to communicate with server: ' + error.message, '❌ Certification check failed');
             }
         }
 
         // Reset form and return to home
         function resetForm() {
             // Reset all forms
-            const forms = ['copyDefinitionsForm', 'manageFollowersForm', 'swapDatasourcesForm', 'updatePreferencesForm'];
+            const forms = ['copyDefinitionsForm', 'manageFollowersForm', 'swapDatasourcesForm', 'updatePreferencesForm', 'checkCertifiedForm'];
             forms.forEach(formId => {
                 const form = document.getElementById(formId);
                 if (form) form.reset();
