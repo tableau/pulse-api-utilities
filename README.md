@@ -37,11 +37,15 @@ View all certified metrics and optionally remove certifications from unauthorize
 - Comprehensive reporting with certification details
 
 ### 6. 📊 Bulk Create Scoped Metrics
-Create multiple scoped metrics from a source metric by applying dimension filters
-- Start from an existing scoped metric as a template
-- Specify a dimension and provide multiple values
-- Automatically creates one scoped metric per dimension value
-- Each new metric includes all filters from the source plus the new dimension filter
+Create multiple scoped metrics from a source metric with CSV upload support for advanced features
+- **📄 CSV Upload Mode**: Upload a CSV file with dimension name, filter values, and follower emails
+  - Column 1: Dimension name (e.g., "Region")
+  - Column 2: Comma-separated filter values (e.g., "East, West" creates a metric with BOTH values)
+  - Column 3: Comma-separated follower emails (optional)
+- **✏️ Manual Entry Mode**: Simple text input for single filter value per metric
+- **👥 Auto-assign Followers**: Automatically add followers by email when creating metrics
+- **🔍 Multiple Filters**: Create metrics with multiple dimension values in a single filter
+- Each new metric includes all filters from the source plus the new dimension filter(s)
 
 ## ✨ Common Features
 
@@ -208,19 +212,32 @@ hello-world-app/
 
 2. **Source Metric Configuration**:
    - Enter the Source Metric ID (the existing scoped metric to use as a template)
-   - Enter the Dimension Name (e.g., "Region", "Category", "Product")
 
-3. **Dimension Values**:
-   - Enter dimension values (comma-separated or one per line)
-   - Example: `East, West, North, South`
+3. **Input Mode Selection**:
+   - **CSV Upload (Recommended)**:
+     - Upload a CSV file with 3 columns:
+       - Column 1: Dimension name (e.g., "Region")
+       - Column 2: Comma-separated filter values (e.g., "East, West")
+       - Column 3: Comma-separated follower emails (optional)
+     - Example CSV:
+       ```csv
+       Region,East,user1@example.com
+       Region,"East, West",user2@example.com
+       Department,Sales,"user3@example.com, user4@example.com"
+       ```
+   - **Manual Entry**:
+     - Enter Dimension Name (e.g., "Region", "Category")
+     - Enter dimension values (comma-separated)
+     - Creates one metric per value (no follower assignment)
 
 4. **Execute**: Click "📊 Create Scoped Metrics" and monitor progress
 
    The tool will:
    - Retrieve the source metric and its specification
-   - Create a new scoped metric for each dimension value
-   - Each new metric will have all filters from the source metric plus a new filter for the specific dimension value
-   - Display success/failure for each created metric
+   - Create a new scoped metric for each CSV row (or dimension value in manual mode)
+   - Each new metric will have all filters from the source metric plus new filter(s) for the dimension value(s)
+   - Automatically add followers by email (CSV mode only)
+   - Display success/failure for each created metric and follower addition
 
    **Example**: If you start with metric X that shows "Total Sales", choose dimension "Region", and provide values "East, West, North, South", the tool will create 4 new scoped metrics:
    - Total Sales (Region=East)

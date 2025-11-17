@@ -575,11 +575,11 @@
                     <div class="utility-card" onclick="showTab('bulk-scoped')">
                         <div class="utility-icon">📊</div>
                         <h3>Bulk Create Scoped Metrics</h3>
-                        <p>Create multiple scoped metrics from a source metric by applying dimension filters</p>
+                        <p>Create multiple scoped metrics with CSV upload: apply dimension filters and auto-assign followers</p>
                         <div class="utility-features">
-                            <span>📊 Start from existing metric</span>
-                            <span>🔍 Filter by dimension values</span>
-                            <span>⚡ Create many metrics at once</span>
+                            <span>📄 CSV upload support</span>
+                            <span>🔍 Multiple filter values per metric</span>
+                            <span>👥 Auto-assign followers by email</span>
                         </div>
                         <button class="utility-button">Get Started</button>
                     </div>
@@ -1030,7 +1030,7 @@
         <div id="bulk-scoped" class="tab-content">
             <div class="form-header">
                 <h2>📊 Bulk Create Scoped Metrics</h2>
-                <p>Create multiple scoped metrics from a source metric by applying dimension filters</p>
+                <p>Create multiple scoped metrics from a source metric by applying dimension filters. Upload a CSV for advanced features!</p>
                 <button type="button" class="button secondary back-button" onclick="showTab('home')">← Back to Home</button>
             </div>
             
@@ -1079,18 +1079,52 @@
                         <input type="text" id="scoped_source_metric_id" name="source_metric_id" placeholder="Source Metric ID" required>
                         <small>💡 The ID of the scoped metric you want to use as a template</small>
                     </div>
+                </div>
+
+                <!-- Input Mode Selection -->
+                <div class="form-section">
+                    <h3>📝 Input Mode</h3>
                     <div class="form-row">
-                        <input type="text" id="scoped_dimension_name" name="dimension_name" placeholder="Dimension Name (e.g., Region)" required>
-                        <small>💡 The dimension field name you want to filter by (must match the exact field name in your data)</small>
+                        <select id="scoped_input_mode" name="input_mode" onchange="toggleInputMode()" required>
+                            <option value="csv">📄 CSV Upload (Recommended - supports multiple filters + followers)</option>
+                            <option value="manual">✏️ Manual Entry (Simple - single filter per metric)</option>
+                        </select>
                     </div>
                 </div>
 
-                <!-- Dimension Values Configuration -->
-                <div class="form-section">
-                    <h3>🔍 Dimension Values</h3>
+                <!-- CSV Upload Mode -->
+                <div id="csv_input_section" class="form-section">
+                    <h3>📄 CSV File Upload</h3>
                     <div class="form-row">
-                        <textarea id="scoped_dimension_values" name="dimension_values" placeholder="Enter dimension values (comma-separated or one per line)" rows="6" required></textarea>
-                        <small>💡 Example: East, West, North, South<br>The tool will create a separate scoped metric for each value</small>
+                        <input type="file" id="scoped_csv_file" name="csv_file" accept=".csv" onchange="previewCSV(event)">
+                        <small>💡 <strong>CSV Format (3 columns):</strong><br>
+                        Column 1: Dimension name (e.g., "Region")<br>
+                        Column 2: Filter values, comma-separated (e.g., "East, West" creates a metric with BOTH values)<br>
+                        Column 3: Follower emails, comma-separated (e.g., "user@example.com, admin@example.com")<br><br>
+                        <strong>Example CSV:</strong><br>
+                        <code style="display:block; background: rgba(0,0,0,0.2); padding: 10px; margin-top: 5px; border-radius: 5px;">
+                        Region,East,user1@example.com<br>
+                        Region,"East, West",user2@example.com<br>
+                        Department,Sales,user3@example.com,user4@example.com
+                        </code>
+                        </small>
+                    </div>
+                    <div id="csv_preview" style="display: none; margin-top: 10px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 5px;">
+                        <strong>CSV Preview:</strong>
+                        <pre id="csv_preview_content" style="margin-top: 5px; max-height: 200px; overflow-y: auto;"></pre>
+                    </div>
+                </div>
+
+                <!-- Manual Entry Mode -->
+                <div id="manual_input_section" class="form-section" style="display: none;">
+                    <h3>✏️ Manual Entry</h3>
+                    <div class="form-row">
+                        <input type="text" id="scoped_dimension_name" name="dimension_name" placeholder="Dimension Name (e.g., Region)">
+                        <small>💡 The dimension field name you want to filter by</small>
+                    </div>
+                    <div class="form-row">
+                        <textarea id="scoped_dimension_values" name="dimension_values" placeholder="Enter dimension values (comma-separated)" rows="4"></textarea>
+                        <small>💡 Example: East, West, North, South<br>Creates one metric per value (no follower assignment in manual mode)</small>
                     </div>
                 </div>
 
@@ -1451,21 +1485,40 @@
         async function submitBulkScoped(event) {
             event.preventDefault();
             
-            const formData = new FormData(event.target);
-            const data = Object.fromEntries(formData.entries());
-            
             // Clear previous results and show new progress
             clearPreviousResults();
             showProgress('📊 Creating scoped metrics...', '📊 Bulk Scoped Metrics Results');
             
             try {
-                const response = await fetch('/bulk-create-scoped-metrics', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(data)
-                });
+                const inputMode = document.getElementById('scoped_input_mode').value;
+                const formData = new FormData(event.target);
+                
+                let response;
+                
+                if (inputMode === 'csv') {
+                    // CSV Upload Mode - send as multipart/form-data
+                    const csvFile = document.getElementById('scoped_csv_file').files[0];
+                    if (!csvFile) {
+                        showError('Please select a CSV file', '❌ Scoped metrics creation failed');
+                        return;
+                    }
+                    
+                    // Send formData directly (includes CSV file)
+                    response = await fetch('/bulk-create-scoped-metrics', {
+                        method: 'POST',
+                        body: formData  // Don't set Content-Type header - browser will set it with boundary
+                    });
+                } else {
+                    // Manual Entry Mode - send as JSON
+                    const data = Object.fromEntries(formData.entries());
+                    response = await fetch('/bulk-create-scoped-metrics', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(data)
+                    });
+                }
 
                 const result = await response.json();
                 
@@ -1479,6 +1532,51 @@
                 console.error('Error:', error);
                 showError('Failed to communicate with server: ' + error.message, '❌ Scoped metrics creation failed');
             }
+        }
+        
+        // Toggle between CSV and manual input modes
+        function toggleInputMode() {
+            const inputMode = document.getElementById('scoped_input_mode').value;
+            const csvSection = document.getElementById('csv_input_section');
+            const manualSection = document.getElementById('manual_input_section');
+            const csvFile = document.getElementById('scoped_csv_file');
+            const dimensionName = document.getElementById('scoped_dimension_name');
+            const dimensionValues = document.getElementById('scoped_dimension_values');
+            
+            if (inputMode === 'csv') {
+                csvSection.style.display = 'block';
+                manualSection.style.display = 'none';
+                csvFile.required = true;
+                dimensionName.required = false;
+                dimensionValues.required = false;
+            } else {
+                csvSection.style.display = 'none';
+                manualSection.style.display = 'block';
+                csvFile.required = false;
+                dimensionName.required = true;
+                dimensionValues.required = true;
+            }
+        }
+        
+        // Preview CSV file contents
+        function previewCSV(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const text = e.target.result;
+                const lines = text.split('\n').slice(0, 10); // Show first 10 lines
+                const preview = document.getElementById('csv_preview');
+                const previewContent = document.getElementById('csv_preview_content');
+                
+                previewContent.textContent = lines.join('\n');
+                if (text.split('\n').length > 10) {
+                    previewContent.textContent += '\n... (showing first 10 lines)';
+                }
+                preview.style.display = 'block';
+            };
+            reader.readAsText(file);
         }
 
         // Reset form and return to home

@@ -5,6 +5,8 @@ import xml.etree.ElementTree as ET
 import re
 import traceback
 import copy
+import csv
+import io
 from urllib.parse import urlparse
 from typing import List, Dict, Optional
 
@@ -1661,46 +1663,129 @@ def check_certified_metrics():
 
 @app.route('/bulk-create-scoped-metrics', methods=['POST'])
 def bulk_create_scoped_metrics():
-    """Create multiple scoped metrics from a source metric by applying dimension filters"""
+    """Create multiple scoped metrics from CSV: dimension name, filter values (comma-sep), followers (comma-sep emails)"""
     try:
-        data = request.json
         results = []
         
-        # Extract form data
-        server_url = data.get('server_url', '').rstrip('/')
-        api_version = data.get('api_version', '3.26')
-        site_content_url = data.get('site_content_url', '')
-        auth_method = data.get('auth_method')
-        source_metric_id = data.get('source_metric_id', '').strip()
-        dimension_name = data.get('dimension_name', '').strip()
-        dimension_values_raw = data.get('dimension_values', '').strip()
+        # Check if this is a CSV file upload
+        if 'csv_file' in request.files:
+            # CSV Upload Mode
+            csv_file = request.files['csv_file']
+            
+            if csv_file.filename == '':
+                return jsonify({'success': False, 'error': 'No CSV file selected'}), 400
+            
+            # Extract form data from multipart
+            server_url = request.form.get('server_url', '').rstrip('/')
+            api_version = request.form.get('api_version', '3.26')
+            site_content_url = request.form.get('site_content_url', '')
+            auth_method = request.form.get('auth_method')
+            source_metric_id = request.form.get('source_metric_id', '').strip()
+            
+            # Authentication data
+            username = request.form.get('username')
+            password = request.form.get('password')
+            pat_name = request.form.get('pat_name')
+            pat_token = request.form.get('pat_token')
+            
+            # Parse CSV
+            csv_content = csv_file.read().decode('utf-8')
+            csv_reader = csv.reader(io.StringIO(csv_content))
+            rows = list(csv_reader)
+            
+            if not rows:
+                return jsonify({'success': False, 'error': 'CSV file is empty'}), 400
+            
+            # Check if first row looks like a header
+            first_row = rows[0]
+            if len(first_row) >= 2 and any(keyword in first_row[0].lower() for keyword in ['dimension', 'name', 'field', 'column']):
+                rows = rows[1:]  # Skip header
+            
+            # Parse CSV rows into metric definitions
+            metric_definitions = []
+            for row_num, row in enumerate(rows, start=1):
+                if len(row) < 2:
+                    return jsonify({
+                        'success': False,
+                        'error': f'Row {row_num} must have at least 2 columns: dimension name and filter values'
+                    }), 400
+                
+                dimension_name = row[0].strip()
+                filter_values_text = row[1].strip()
+                followers_text = row[2].strip() if len(row) > 2 else ''
+                
+                if not dimension_name or not filter_values_text:
+                    return jsonify({
+                        'success': False,
+                        'error': f'Row {row_num} has empty dimension name or filter values'
+                    }), 400
+                
+                # Parse comma-separated filter values
+                filter_values = [v.strip() for v in filter_values_text.split(',') if v.strip()]
+                
+                # Parse comma-separated follower emails
+                followers = [f.strip() for f in followers_text.split(',') if f.strip()]
+                
+                metric_definitions.append({
+                    'dimension_name': dimension_name,
+                    'filter_values': filter_values,
+                    'followers': followers
+                })
+            
+            if not metric_definitions:
+                return jsonify({'success': False, 'error': 'No valid data rows found in CSV'}), 400
+                
+        else:
+            # Legacy JSON Mode (manual form input)
+            data = request.json
+            
+            server_url = data.get('server_url', '').rstrip('/')
+            api_version = data.get('api_version', '3.26')
+            site_content_url = data.get('site_content_url', '')
+            auth_method = data.get('auth_method')
+            source_metric_id = data.get('source_metric_id', '').strip()
+            dimension_name = data.get('dimension_name', '').strip()
+            dimension_values_raw = data.get('dimension_values', '').strip()
+            
+            # Authentication data
+            username = data.get('username')
+            password = data.get('password')
+            pat_name = data.get('pat_name')
+            pat_token = data.get('pat_token')
+            
+            # Validate required fields
+            if not all([server_url, auth_method, source_metric_id, dimension_name, dimension_values_raw]):
+                return jsonify({
+                    'success': False,
+                    'error': 'Missing required fields'
+                })
+            
+            # Parse as single dimension values (legacy mode - one value per metric)
+            dimension_values = [v.strip() for v in dimension_values_raw.split(',') if v.strip()]
+            
+            if not dimension_values:
+                return jsonify({'success': False, 'error': 'No valid dimension values provided'})
+            
+            # Convert to metric definitions format (single filter value per metric, no followers)
+            metric_definitions = [
+                {
+                    'dimension_name': dimension_name,
+                    'filter_values': [value],
+                    'followers': []
+                }
+                for value in dimension_values
+            ]
         
-        # Authentication data
-        username = data.get('username')
-        password = data.get('password')
-        pat_name = data.get('pat_name')
-        pat_token = data.get('pat_token')
-        
-        # Validate required fields
-        if not all([server_url, auth_method, source_metric_id, dimension_name, dimension_values_raw]):
+        # Validate common required fields
+        if not all([server_url, auth_method, source_metric_id]):
             return jsonify({
                 'success': False,
-                'error': 'Missing required fields: server_url, auth_method, source_metric_id, dimension_name, and dimension_values are required'
-            })
-        
-        # Parse dimension values
-        dimension_values = [v.strip() for v in dimension_values_raw.split(',') if v.strip()]
-        
-        if not dimension_values:
-            return jsonify({
-                'success': False,
-                'error': 'No valid dimension values provided'
+                'error': 'Missing required fields: server_url, auth_method, and source_metric_id are required'
             })
         
         results.append({'success': True, 'message': f'🚀 Starting bulk scoped metric creation...'})
         results.append({'success': True, 'message': f'📊 Source Metric ID: {source_metric_id}'})
-        results.append({'success': True, 'message': f'🔍 Dimension: {dimension_name}'})
-        results.append({'success': True, 'message': f'📋 Creating {len(dimension_values)} scoped metrics'})
+        results.append({'success': True, 'message': f'📋 Creating {len(metric_definitions)} scoped metric(s)'})
         
         # Authenticate
         results.append({'success': True, 'message': '🔐 Authenticating with Tableau Server...'})
@@ -1717,6 +1802,7 @@ def bulk_create_scoped_metrics():
             })
         
         auth_token = auth_result['auth_token']
+        site_id = auth_result.get('site_id', '')
         results.append({'success': True, 'message': '✅ Authentication successful!'})
         
         # Get source metric details
@@ -1745,38 +1831,55 @@ def bulk_create_scoped_metrics():
         existing_filters_count = len(source_specification.get('filters', []))
         results.append({'success': True, 'message': f'📋 Source metric has {existing_filters_count} existing filter(s)'})
         
-        # Create scoped metrics for each dimension value
+        # Create scoped metrics from definitions
         created_count = 0
         failed_count = 0
+        followers_added_count = 0
+        followers_failed_count = 0
         
         results.append({'success': True, 'message': f'\n🔄 Creating scoped metrics...'})
         
-        for i, dimension_value in enumerate(dimension_values, 1):
+        for i, metric_def in enumerate(metric_definitions, 1):
             try:
+                dimension_name = metric_def['dimension_name']
+                filter_values = metric_def['filter_values']
+                followers = metric_def['followers']
+                
                 # Deep copy the source specification to avoid any reference issues
                 new_specification = copy.deepcopy(source_specification)
                 
                 # Get existing filters (or empty list if none)
                 new_filters = new_specification.get('filters', [])
                 
-                # Add the dimension filter
-                new_filter = {
-                    "field": dimension_name,
-                    "operator": "OPERATOR_EQUAL",  # Correct operator name
-                    "categorical_values": [{"string_value": dimension_value}]
-                }
+                # Add a filter for this dimension with ALL the specified values
+                # Using OPERATOR_IN for multiple values, OPERATOR_EQUAL for single value
+                if len(filter_values) == 1:
+                    new_filter = {
+                        "field": dimension_name,
+                        "operator": "OPERATOR_EQUAL",
+                        "categorical_values": [{"string_value": filter_values[0]}]
+                    }
+                else:
+                    new_filter = {
+                        "field": dimension_name,
+                        "operator": "OPERATOR_IN",
+                        "categorical_values": [{"string_value": val} for val in filter_values]
+                    }
+                
                 new_filters.append(new_filter)
                 
                 # Update the specification with new filters
                 new_specification['filters'] = new_filters
                 
                 # Remove comparison field entirely - it's not needed for getOrCreate
-                # The comparison is part of the metric itself, not the specification
                 if 'comparison' in new_specification:
                     del new_specification['comparison']
                 
+                # Create a readable description of the filter
+                filter_desc = f"{dimension_name}={', '.join(filter_values)}"
+                
                 # Log what we're about to send (for debugging)
-                print(f"Creating metric {i}/{len(dimension_values)}: {dimension_name}={dimension_value}")
+                print(f"Creating metric {i}/{len(metric_definitions)}: {filter_desc}")
                 print(f"New specification: {json.dumps(new_specification, indent=2)}")
                 
                 # Create the scoped metric
@@ -1788,42 +1891,79 @@ def bulk_create_scoped_metrics():
                     is_newly_created = create_result.get('is_newly_created', False)
                     
                     # Show different message for newly created vs. already existing
-                    if is_newly_created:
-                        results.append({'success': True, 'message': f'[{i}/{len(dimension_values)}] ✅ Created: {dimension_name}={dimension_value} (ID: {new_metric_id})'})
-                    else:
-                        results.append({'success': True, 'message': f'[{i}/{len(dimension_values)}] ✅ Found existing: {dimension_name}={dimension_value} (ID: {new_metric_id})'})
+                    status = "✨ Created" if is_newly_created else "✅ Found existing"
+                    results.append({'success': True, 'message': f'[{i}/{len(metric_definitions)}] {status}: {filter_desc} (ID: {new_metric_id})'})
                     
                     created_count += 1
+                    
+                    # Add followers if specified
+                    if followers:
+                        results.append({'success': True, 'message': f'  👥 Adding {len(followers)} follower(s)...'})
+                        
+                        try:
+                            # Look up user IDs from emails
+                            user_ids = []
+                            for email in followers:
+                                try:
+                                    user_id = get_user_id_by_email(server_url, auth_token, site_id, email)
+                                    user_ids.append(user_id)
+                                except ValueError as e:
+                                    results.append({'success': False, 'message': f'  ⚠️  Could not find user: {email}'})
+                            
+                            # Add followers to the metric
+                            if user_ids:
+                                # Get existing followers to avoid duplicates
+                                existing_followers = get_metric_followers(server_url, auth_token, new_metric_id)
+                                new_followers = [uid for uid in user_ids if uid not in existing_followers]
+                                
+                                if new_followers:
+                                    follower_result = batch_create_subscriptions(server_url, auth_token, new_metric_id, new_followers)
+                                    if follower_result['success']:
+                                        results.append({'success': True, 'message': f'  ✅ Added {len(new_followers)} follower(s)'})
+                                        followers_added_count += len(new_followers)
+                                    else:
+                                        results.append({'success': False, 'message': f'  ❌ Failed to add followers: {follower_result["message"]}'})
+                                        followers_failed_count += 1
+                                else:
+                                    results.append({'success': True, 'message': f'  ℹ️  All users already follow this metric'})
+                        except Exception as follower_error:
+                            results.append({'success': False, 'message': f'  ❌ Error adding followers: {str(follower_error)}'})
+                            followers_failed_count += 1
                 else:
                     error_msg = create_result.get('error', 'Unknown error')
                     api_response = create_result.get('response', '')
                     full_error = f"{error_msg}"
                     if api_response:
                         full_error += f" | API Response: {api_response}"
-                    results.append({'success': False, 'message': f'[{i}/{len(dimension_values)}] ❌ Failed: {dimension_name}={dimension_value} - {full_error}'})
+                    results.append({'success': False, 'message': f'[{i}/{len(metric_definitions)}] ❌ Failed: {filter_desc} - {full_error}'})
                     failed_count += 1
                     print(f"Failed to create metric: {full_error}")
                     
             except Exception as e:
                 tb = traceback.format_exc()
                 print(f"Exception creating metric {i}: {tb}")
-                results.append({'success': False, 'message': f'[{i}/{len(dimension_values)}] ❌ Error for {dimension_name}={dimension_value}: {str(e)}'})
+                results.append({'success': False, 'message': f'[{i}/{len(metric_definitions)}] ❌ Error: {str(e)}'})
                 failed_count += 1
         
         # Summary
         results.append({'success': True, 'message': '\n📊 SUMMARY'})
         results.append({'success': True, 'message': '=' * 60})
-        results.append({'success': True, 'message': f'✅ Successfully processed: {created_count}'})
-        results.append({'success': True, 'message': f'❌ Failed: {failed_count}'})
-        results.append({'success': True, 'message': f'📊 Total attempted: {len(dimension_values)}'})
+        results.append({'success': True, 'message': f'✅ Metrics processed: {created_count}'})
+        results.append({'success': True, 'message': f'❌ Metrics failed: {failed_count}'})
+        results.append({'success': True, 'message': f'📊 Total attempted: {len(metric_definitions)}'})
+        
+        if followers_added_count > 0:
+            results.append({'success': True, 'message': f'👥 Followers added: {followers_added_count}'})
         
         if created_count > 0:
-            success_rate = (created_count / len(dimension_values)) * 100
+            success_rate = (created_count / len(metric_definitions)) * 100
             results.append({'success': True, 'message': f'📈 Success rate: {success_rate:.1f}%'})
         
         summary = f"Processed {created_count} scoped metrics successfully"
         if failed_count > 0:
             summary += f", {failed_count} failed"
+        if followers_added_count > 0:
+            summary += f", {followers_added_count} followers added"
         
         return jsonify({
             'success': True,
