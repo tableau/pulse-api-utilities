@@ -3,6 +3,8 @@ import requests
 import json
 import xml.etree.ElementTree as ET
 import re
+import traceback
+import copy
 from urllib.parse import urlparse
 from typing import List, Dict, Optional
 
@@ -534,6 +536,65 @@ def remove_certification_rest(server_url, auth_token, definition_id):
             
     except Exception as e:
         return {'success': False, 'error': f"Error removing certification: {str(e)}"}
+
+# ------------------------------
+# Bulk Create Scoped Metrics Functions
+# ------------------------------
+
+def get_metric_details_rest(server_url, auth_token, metric_id):
+    """Get details of a specific metric."""
+    url = f"{server_url}/api/-/pulse/metrics/{metric_id}"
+    
+    headers = {
+        'X-Tableau-Auth': auth_token,
+        'Accept': 'application/json'
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, verify=True)
+        
+        if response.status_code == 200:
+            return {'success': True, 'metric': response.json().get('metric', {})}
+        else:
+            return {'success': False, 'error': f"Failed to get metric. Status: {response.status_code}"}
+            
+    except Exception as e:
+        return {'success': False, 'error': f"Error getting metric: {str(e)}"}
+
+def create_scoped_metric_rest(server_url, auth_token, definition_id, metric_specification):
+    """Create a new scoped metric using getOrCreate endpoint."""
+    url = f"{server_url}/api/-/pulse/metrics:getOrCreate"
+    
+    headers = {
+        'X-Tableau-Auth': auth_token,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    }
+    
+    payload = {
+        "definition_id": definition_id,
+        "specification": metric_specification
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, verify=True)
+        
+        # Accept both 200 (OK) and 201 (Created) as success
+        if response.status_code in [200, 201]:
+            response_data = response.json()
+            metric_data = response_data.get('metric', {})
+            is_created = response_data.get('is_metric_created', False)
+            
+            return {
+                'success': True, 
+                'metric': metric_data,
+                'is_newly_created': is_created
+            }
+        else:
+            return {'success': False, 'error': f"Failed to create metric. Status: {response.status_code}", 'response': response.text}
+            
+    except Exception as e:
+        return {'success': False, 'error': f"Error creating metric: {str(e)}"}
 
 # ------------------------------
 # User Preferences Functions (from Update_Pulse_User_Preferences.py)
@@ -1596,6 +1657,192 @@ def check_certified_metrics():
         return jsonify({
             'success': False,
             'error': f'Unexpected error: {str(e)}'
+        })
+
+@app.route('/bulk-create-scoped-metrics', methods=['POST'])
+def bulk_create_scoped_metrics():
+    """Create multiple scoped metrics from a source metric by applying dimension filters"""
+    try:
+        data = request.json
+        results = []
+        
+        # Extract form data
+        server_url = data.get('server_url', '').rstrip('/')
+        api_version = data.get('api_version', '3.26')
+        site_content_url = data.get('site_content_url', '')
+        auth_method = data.get('auth_method')
+        source_metric_id = data.get('source_metric_id', '').strip()
+        dimension_name = data.get('dimension_name', '').strip()
+        dimension_values_raw = data.get('dimension_values', '').strip()
+        
+        # Authentication data
+        username = data.get('username')
+        password = data.get('password')
+        pat_name = data.get('pat_name')
+        pat_token = data.get('pat_token')
+        
+        # Validate required fields
+        if not all([server_url, auth_method, source_metric_id, dimension_name, dimension_values_raw]):
+            return jsonify({
+                'success': False,
+                'error': 'Missing required fields: server_url, auth_method, source_metric_id, dimension_name, and dimension_values are required'
+            })
+        
+        # Parse dimension values
+        dimension_values = [v.strip() for v in dimension_values_raw.split(',') if v.strip()]
+        
+        if not dimension_values:
+            return jsonify({
+                'success': False,
+                'error': 'No valid dimension values provided'
+            })
+        
+        results.append({'success': True, 'message': f'🚀 Starting bulk scoped metric creation...'})
+        results.append({'success': True, 'message': f'📊 Source Metric ID: {source_metric_id}'})
+        results.append({'success': True, 'message': f'🔍 Dimension: {dimension_name}'})
+        results.append({'success': True, 'message': f'📋 Creating {len(dimension_values)} scoped metrics'})
+        
+        # Authenticate
+        results.append({'success': True, 'message': '🔐 Authenticating with Tableau Server...'})
+        
+        auth_result = authenticate_tableau_rest(
+            server_url, api_version, site_content_url, auth_method,
+            username, password, pat_name, pat_token
+        )
+        
+        if not auth_result['success']:
+            return jsonify({
+                'success': False,
+                'error': f"Authentication failed: {auth_result['error']}"
+            })
+        
+        auth_token = auth_result['auth_token']
+        results.append({'success': True, 'message': '✅ Authentication successful!'})
+        
+        # Get source metric details
+        results.append({'success': True, 'message': f'📊 Retrieving source metric details...'})
+        metric_result = get_metric_details_rest(server_url, auth_token, source_metric_id)
+        
+        if not metric_result['success']:
+            return jsonify({
+                'success': False,
+                'error': f"Failed to get source metric: {metric_result['error']}"
+            })
+        
+        source_metric = metric_result['metric']
+        definition_id = source_metric.get('definition_id')
+        source_specification = source_metric.get('specification', {})
+        
+        if not definition_id:
+            return jsonify({
+                'success': False,
+                'error': 'Could not determine definition_id from source metric'
+            })
+        
+        results.append({'success': True, 'message': f'✅ Retrieved source metric (Definition: {definition_id})'})
+        
+        # Get existing filters count from source metric
+        existing_filters_count = len(source_specification.get('filters', []))
+        results.append({'success': True, 'message': f'📋 Source metric has {existing_filters_count} existing filter(s)'})
+        
+        # Create scoped metrics for each dimension value
+        created_count = 0
+        failed_count = 0
+        
+        results.append({'success': True, 'message': f'\n🔄 Creating scoped metrics...'})
+        
+        for i, dimension_value in enumerate(dimension_values, 1):
+            try:
+                # Deep copy the source specification to avoid any reference issues
+                new_specification = copy.deepcopy(source_specification)
+                
+                # Get existing filters (or empty list if none)
+                new_filters = new_specification.get('filters', [])
+                
+                # Add the dimension filter
+                new_filter = {
+                    "field": dimension_name,
+                    "operator": "OPERATOR_EQUAL",  # Correct operator name
+                    "categorical_values": [{"string_value": dimension_value}]
+                }
+                new_filters.append(new_filter)
+                
+                # Update the specification with new filters
+                new_specification['filters'] = new_filters
+                
+                # Remove comparison field entirely - it's not needed for getOrCreate
+                # The comparison is part of the metric itself, not the specification
+                if 'comparison' in new_specification:
+                    del new_specification['comparison']
+                
+                # Log what we're about to send (for debugging)
+                print(f"Creating metric {i}/{len(dimension_values)}: {dimension_name}={dimension_value}")
+                print(f"New specification: {json.dumps(new_specification, indent=2)}")
+                
+                # Create the scoped metric
+                create_result = create_scoped_metric_rest(server_url, auth_token, definition_id, new_specification)
+                
+                if create_result['success']:
+                    new_metric = create_result['metric']
+                    new_metric_id = new_metric.get('id', 'Unknown')
+                    is_newly_created = create_result.get('is_newly_created', False)
+                    
+                    # Show different message for newly created vs. already existing
+                    if is_newly_created:
+                        results.append({'success': True, 'message': f'[{i}/{len(dimension_values)}] ✅ Created: {dimension_name}={dimension_value} (ID: {new_metric_id})'})
+                    else:
+                        results.append({'success': True, 'message': f'[{i}/{len(dimension_values)}] ✅ Found existing: {dimension_name}={dimension_value} (ID: {new_metric_id})'})
+                    
+                    created_count += 1
+                else:
+                    error_msg = create_result.get('error', 'Unknown error')
+                    api_response = create_result.get('response', '')
+                    full_error = f"{error_msg}"
+                    if api_response:
+                        full_error += f" | API Response: {api_response}"
+                    results.append({'success': False, 'message': f'[{i}/{len(dimension_values)}] ❌ Failed: {dimension_name}={dimension_value} - {full_error}'})
+                    failed_count += 1
+                    print(f"Failed to create metric: {full_error}")
+                    
+            except Exception as e:
+                tb = traceback.format_exc()
+                print(f"Exception creating metric {i}: {tb}")
+                results.append({'success': False, 'message': f'[{i}/{len(dimension_values)}] ❌ Error for {dimension_name}={dimension_value}: {str(e)}'})
+                failed_count += 1
+        
+        # Summary
+        results.append({'success': True, 'message': '\n📊 SUMMARY'})
+        results.append({'success': True, 'message': '=' * 60})
+        results.append({'success': True, 'message': f'✅ Successfully processed: {created_count}'})
+        results.append({'success': True, 'message': f'❌ Failed: {failed_count}'})
+        results.append({'success': True, 'message': f'📊 Total attempted: {len(dimension_values)}'})
+        
+        if created_count > 0:
+            success_rate = (created_count / len(dimension_values)) * 100
+            results.append({'success': True, 'message': f'📈 Success rate: {success_rate:.1f}%'})
+        
+        summary = f"Processed {created_count} scoped metrics successfully"
+        if failed_count > 0:
+            summary += f", {failed_count} failed"
+        
+        return jsonify({
+            'success': True,
+            'results': results,
+            'summary': summary,
+            'created_count': created_count,
+            'failed_count': failed_count
+        })
+        
+    except Exception as e:
+        # Get full stack trace
+        tb_str = traceback.format_exc()
+        print(f"ERROR in bulk_create_scoped_metrics: {tb_str}")  # Log to console
+        
+        return jsonify({
+            'success': False,
+            'error': f'Unexpected error: {str(e)}',
+            'traceback': tb_str,
+            'error_type': type(e).__name__
         })
 
 if __name__ == '__main__':

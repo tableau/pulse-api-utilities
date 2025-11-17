@@ -502,6 +502,7 @@
             <button class="tab-button" onclick="showTab('swap-datasources')">🔄 Swap Datasources</button>
             <button class="tab-button" onclick="showTab('update-preferences')">⚙️ Update Preferences</button>
             <button class="tab-button" onclick="showTab('check-certified')">✅ Check Certified</button>
+            <button class="tab-button" onclick="showTab('bulk-scoped')">📊 Bulk Scoped Metrics</button>
         </div>
 
         <!-- Home Tab - Utility Selector -->
@@ -567,6 +568,18 @@
                             <span>✅ View all certified metrics</span>
                             <span>👥 Check certifier group membership</span>
                             <span>🗑️ Remove unauthorized certifications</span>
+                        </div>
+                        <button class="utility-button">Get Started</button>
+                    </div>
+
+                    <div class="utility-card" onclick="showTab('bulk-scoped')">
+                        <div class="utility-icon">📊</div>
+                        <h3>Bulk Create Scoped Metrics</h3>
+                        <p>Create multiple scoped metrics from a source metric by applying dimension filters</p>
+                        <div class="utility-features">
+                            <span>📊 Start from existing metric</span>
+                            <span>🔍 Filter by dimension values</span>
+                            <span>⚡ Create many metrics at once</span>
                         </div>
                         <button class="utility-button">Get Started</button>
                     </div>
@@ -1013,6 +1026,81 @@
             </form>
         </div>
 
+        <!-- Bulk Create Scoped Metrics Tab -->
+        <div id="bulk-scoped" class="tab-content">
+            <div class="form-header">
+                <h2>📊 Bulk Create Scoped Metrics</h2>
+                <p>Create multiple scoped metrics from a source metric by applying dimension filters</p>
+                <button type="button" class="button secondary back-button" onclick="showTab('home')">← Back to Home</button>
+            </div>
+            
+            <form id="bulkScopedForm" onsubmit="submitBulkScoped(event)">
+                <!-- Server Connection Section -->
+                <div class="form-section">
+                    <h3>🔗 Server Connection</h3>
+                    <div class="form-row">
+                        <input type="url" id="scoped_server_url" name="server_url" placeholder="Tableau Server URL (e.g., https://your-server.com)" required>
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="scoped_api_version" name="api_version" value="3.26" placeholder="API Version (e.g., 3.26)" pattern="^\d+\.\d+$">
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="scoped_site_content_url" name="site_content_url" placeholder="Site Content URL (blank for Default)">
+                    </div>
+                    <div class="form-row">
+                        <select id="scoped_auth_method" name="auth_method" onchange="toggleAuthFields('scoped')" required>
+                            <option value="">Select Authentication Method</option>
+                            <option value="password">Username/Password</option>
+                            <option value="pat">Personal Access Token</option>
+                        </select>
+                    </div>
+                    <div id="scoped_user_auth" class="auth-fields" style="display: none;">
+                        <div class="form-row">
+                            <input type="text" id="scoped_username" name="username" placeholder="Username">
+                        </div>
+                        <div class="form-row">
+                            <input type="password" id="scoped_password" name="password" placeholder="Password">
+                        </div>
+                    </div>
+                    <div id="scoped_pat_auth" class="auth-fields" style="display: none;">
+                        <div class="form-row">
+                            <input type="text" id="scoped_pat_name" name="pat_name" placeholder="PAT Name">
+                        </div>
+                        <div class="form-row">
+                            <input type="password" id="scoped_pat_token" name="pat_token" placeholder="PAT Value">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Source Metric Configuration -->
+                <div class="form-section">
+                    <h3>📊 Source Metric Configuration</h3>
+                    <div class="form-row">
+                        <input type="text" id="scoped_source_metric_id" name="source_metric_id" placeholder="Source Metric ID" required>
+                        <small>💡 The ID of the scoped metric you want to use as a template</small>
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="scoped_dimension_name" name="dimension_name" placeholder="Dimension Name (e.g., Region)" required>
+                        <small>💡 The dimension field name you want to filter by (must match the exact field name in your data)</small>
+                    </div>
+                </div>
+
+                <!-- Dimension Values Configuration -->
+                <div class="form-section">
+                    <h3>🔍 Dimension Values</h3>
+                    <div class="form-row">
+                        <textarea id="scoped_dimension_values" name="dimension_values" placeholder="Enter dimension values (comma-separated or one per line)" rows="6" required></textarea>
+                        <small>💡 Example: East, West, North, South<br>The tool will create a separate scoped metric for each value</small>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="button">📊 Create Scoped Metrics</button>
+                    <button type="button" class="button secondary" onclick="showTab('home')">← Back to Home</button>
+                </div>
+            </form>
+        </div>
+
         <!-- Results section -->
         <div id="results" class="results-section" style="display: none;">
             <h3 id="resultsTitle">📊 Results</h3>
@@ -1252,18 +1340,47 @@
         }
 
         // Show error
-        function showError(errorMessage, failureMessage = '❌ Process failed') {
+        function showError(errorMessage, failureMessage = '❌ Process failed', errorData = null) {
             const progressDiv = document.getElementById('progress');
             const resultsDiv = document.getElementById('copyResults');
             
             progressDiv.innerHTML = failureMessage;
-            resultsDiv.innerHTML = `
+            
+            let errorHTML = `
                 <div class="result-item error">
                     <strong>Error:</strong><br>
                     ${errorMessage}
                 </div>
             `;
             
+            // If error data contains traceback or additional details, show them
+            if (errorData) {
+                if (errorData.error_type) {
+                    errorHTML += `
+                        <div class="result-item error">
+                            <strong>Error Type:</strong> ${errorData.error_type}
+                        </div>
+                    `;
+                }
+                if (errorData.traceback) {
+                    errorHTML += `
+                        <div class="result-item error">
+                            <strong>Stack Trace:</strong><br>
+                            <pre style="background: #1a1a1a; color: #ff6b6b; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 0.85em;">${errorData.traceback}</pre>
+                        </div>
+                    `;
+                }
+                if (errorData.response) {
+                    errorHTML += `
+                        <div class="result-item error">
+                            <strong>API Response:</strong><br>
+                            <pre style="background: #1a1a1a; color: #ffd43b; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 0.85em;">${errorData.response}</pre>
+                        </div>
+                    `;
+                }
+            }
+            
+            resultsDiv.innerHTML = errorHTML;
             document.getElementById('results').style.display = 'block';
         }
 
@@ -1331,10 +1448,43 @@
             }
         }
 
+        async function submitBulkScoped(event) {
+            event.preventDefault();
+            
+            const formData = new FormData(event.target);
+            const data = Object.fromEntries(formData.entries());
+            
+            // Clear previous results and show new progress
+            clearPreviousResults();
+            showProgress('📊 Creating scoped metrics...', '📊 Bulk Scoped Metrics Results');
+            
+            try {
+                const response = await fetch('/bulk-create-scoped-metrics', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    showResults(result, '✅ Scoped metrics creation completed!');
+                } else {
+                    // Pass the full error object to showError for stack trace display
+                    showError(result.error || 'Unknown error occurred', '❌ Scoped metrics creation failed', result);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showError('Failed to communicate with server: ' + error.message, '❌ Scoped metrics creation failed');
+            }
+        }
+
         // Reset form and return to home
         function resetForm() {
             // Reset all forms
-            const forms = ['copyDefinitionsForm', 'manageFollowersForm', 'swapDatasourcesForm', 'updatePreferencesForm', 'checkCertifiedForm'];
+            const forms = ['copyDefinitionsForm', 'manageFollowersForm', 'swapDatasourcesForm', 'updatePreferencesForm', 'checkCertifiedForm', 'bulkScopedForm'];
             forms.forEach(formId => {
                 const form = document.getElementById(formId);
                 if (form) form.reset();

@@ -1,6 +1,6 @@
 # Tableau Pulse Utilities
 
-A comprehensive web application suite for managing Tableau Pulse with five powerful utilities, built with Python Flask and featuring a modern, responsive UI.
+A comprehensive web application suite for managing Tableau Pulse with six powerful utilities, built with Python Flask and featuring a modern, responsive UI.
 
 ## 🚀 Available Utilities
 
@@ -35,6 +35,13 @@ View all certified metrics and optionally remove certifications from unauthorize
 - Filter by group name (automatic group ID lookup)
 - Automatically remove certifications from non-group members
 - Comprehensive reporting with certification details
+
+### 6. 📊 Bulk Create Scoped Metrics
+Create multiple scoped metrics from a source metric by applying dimension filters
+- Start from an existing scoped metric as a template
+- Specify a dimension and provide multiple values
+- Automatically creates one scoped metric per dimension value
+- Each new metric includes all filters from the source plus the new dimension filter
 
 ## ✨ Common Features
 
@@ -194,6 +201,33 @@ hello-world-app/
    - Display certifier information and certification dates
    - Optionally remove certifications from unauthorized users
 
+### 📊 Using Bulk Create Scoped Metrics
+1. **Server Connection**:
+   - Enter Tableau Server URL and API version
+   - Provide site content URL and authentication credentials
+
+2. **Source Metric Configuration**:
+   - Enter the Source Metric ID (the existing scoped metric to use as a template)
+   - Enter the Dimension Name (e.g., "Region", "Category", "Product")
+
+3. **Dimension Values**:
+   - Enter dimension values (comma-separated or one per line)
+   - Example: `East, West, North, South`
+
+4. **Execute**: Click "📊 Create Scoped Metrics" and monitor progress
+
+   The tool will:
+   - Retrieve the source metric and its specification
+   - Create a new scoped metric for each dimension value
+   - Each new metric will have all filters from the source metric plus a new filter for the specific dimension value
+   - Display success/failure for each created metric
+
+   **Example**: If you start with metric X that shows "Total Sales", choose dimension "Region", and provide values "East, West, North, South", the tool will create 4 new scoped metrics:
+   - Total Sales (Region=East)
+   - Total Sales (Region=West)
+   - Total Sales (Region=North)
+   - Total Sales (Region=South)
+
 ## 🔌 API Endpoints
 
 - `GET /` - Main utilities selection interface
@@ -203,6 +237,7 @@ hello-world-app/
 - `POST /swap-datasources` - Copy definitions with new datasources
 - `POST /update-preferences` - Update user preferences for Pulse
 - `POST /check-certified-metrics` - Check certified metrics and remove unauthorized certifications
+- `POST /bulk-create-scoped-metrics` - Create multiple scoped metrics from a source metric
 
 ## Customization
 
@@ -247,14 +282,15 @@ hello-world-app/
 
 ## 🎯 What's Included
 
-This application suite converts five original command-line Python scripts into a unified, user-friendly web interface:
+This application suite includes six powerful utilities for managing Tableau Pulse:
 
-### Original Scripts Converted:
+### Available Utilities:
 1. **Pulse Definition Copier** - Copy definitions between sites
 2. **Bulk Manage Followers** - Add/remove followers from metrics  
 3. **Swap Datasources** - Copy definitions with new datasources
 4. **Update User Preferences** - Update Pulse user preferences
 5. **Check Certified Metrics** - View and manage metric certifications
+6. **Bulk Create Scoped Metrics** - Create multiple scoped metrics with dimension filters
 
 ### Benefits of the Web Interface:
 - **🌐 No CLI Required**: Everything runs through the web browser
@@ -263,7 +299,7 @@ This application suite converts five original command-line Python scripts into a
 - **🔒 Security**: Credentials are handled securely without persistent storage
 - **🚀 Enhanced Functionality**: Same power as the original CLI scripts with improved usability
 - **📱 Accessibility**: Works on any device with a web browser
-- **🏠 Unified Interface**: All three utilities in one convenient location
+- **🏠 Unified Interface**: All six utilities in one convenient location
 
 ### Technical Features:
 - Modern Flask web framework
@@ -273,4 +309,4 @@ This application suite converts five original command-line Python scripts into a
 - Beautiful, responsive UI with animations
 - Support for both JSON and XML API authentication methods
 
-Transform your Tableau Pulse management workflow with this powerful web application suite! 🚀📊👥🔄⚙️✅
+Transform your Tableau Pulse management workflow with this powerful web application suite! 🚀📊👥🔄⚙️✅📊
