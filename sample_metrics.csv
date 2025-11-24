@@ -1,0 +1,6 @@
+Dimension Name,Filter Values,Follower Emails
+Region,East,user1@example.com
+Region,"East, West",user2@example.com
+Region,North,"user3@example.com, user4@example.com"
+Department,Sales,admin@example.com
+Department,"Sales, Marketing",manager@example.com

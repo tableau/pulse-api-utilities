@@ -563,6 +563,46 @@ def get_metric_details_rest(server_url, auth_token, metric_id):
     except Exception as e:
         return {'success': False, 'error': f"Error getting metric: {str(e)}"}
 
+def get_all_metrics_for_definition_rest(server_url, auth_token, definition_id):
+    """Get all metrics for a specific definition."""
+    url = f"{server_url}/api/-/pulse/metrics?definition_id={definition_id}&page_size=1000"
+    
+    headers = {
+        'X-Tableau-Auth': auth_token,
+        'Accept': 'application/json'
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, verify=True)
+        
+        if response.status_code == 200:
+            return {'success': True, 'metrics': response.json().get('metrics', [])}
+        else:
+            return {'success': False, 'error': f"Failed to get metrics. Status: {response.status_code}"}
+            
+    except Exception as e:
+        return {'success': False, 'error': f"Error getting metrics: {str(e)}"}
+
+def get_all_subscriptions_rest(server_url, auth_token):
+    """Get all subscriptions on the site."""
+    url = f"{server_url}/api/-/pulse/subscriptions?page_size=1000"
+    
+    headers = {
+        'X-Tableau-Auth': auth_token,
+        'Accept': 'application/json'
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, verify=True)
+        
+        if response.status_code == 200:
+            return {'success': True, 'subscriptions': response.json().get('subscriptions', [])}
+        else:
+            return {'success': False, 'error': f"Failed to get subscriptions. Status: {response.status_code}"}
+            
+    except Exception as e:
+        return {'success': False, 'error': f"Error getting subscriptions: {str(e)}"}
+
 def create_scoped_metric_rest(server_url, auth_token, definition_id, metric_specification):
     """Create a new scoped metric using getOrCreate endpoint."""
     url = f"{server_url}/api/-/pulse/metrics:getOrCreate"
@@ -1977,6 +2017,216 @@ def bulk_create_scoped_metrics():
         # Get full stack trace
         tb_str = traceback.format_exc()
         print(f"ERROR in bulk_create_scoped_metrics: {tb_str}")  # Log to console
+        
+        return jsonify({
+            'success': False,
+            'error': f'Unexpected error: {str(e)}',
+            'traceback': tb_str,
+            'error_type': type(e).__name__
+        })
+
+@app.route('/pulse-analytics', methods=['POST'])
+def pulse_analytics():
+    """Generate analytics about Pulse metrics, followers, definitions, and datasources"""
+    try:
+        data = request.json
+        results = []
+        
+        # Extract form data
+        server_url = data.get('server_url', '').rstrip('/')
+        api_version = data.get('api_version', '3.26')
+        site_content_url = data.get('site_content_url', '')
+        auth_method = data.get('auth_method')
+        
+        # Authentication data
+        username = data.get('username')
+        password = data.get('password')
+        pat_name = data.get('pat_name')
+        pat_token = data.get('pat_token')
+        
+        # Validate required fields
+        if not all([server_url, auth_method]):
+            return jsonify({
+                'success': False,
+                'error': 'Missing required fields: server_url and auth_method are required'
+            })
+        
+        results.append({'success': True, 'message': '🚀 Starting Pulse Analytics...'})
+        
+        # Authenticate
+        results.append({'success': True, 'message': '🔐 Authenticating with Tableau Server...'})
+        
+        auth_result = authenticate_tableau_rest(
+            server_url, api_version, site_content_url, auth_method,
+            username, password, pat_name, pat_token
+        )
+        
+        if not auth_result['success']:
+            return jsonify({
+                'success': False,
+                'error': f"Authentication failed: {auth_result['error']}"
+            })
+        
+        auth_token = auth_result['auth_token']
+        site_id = auth_result.get('site_id', '')
+        results.append({'success': True, 'message': '✅ Authentication successful!'})
+        
+        # Get all definitions
+        results.append({'success': True, 'message': '📊 Retrieving all metric definitions...'})
+        definitions_result = get_metric_definitions_rest(server_url, auth_token)
+        
+        if not definitions_result['success']:
+            return jsonify({
+                'success': False,
+                'error': f"Failed to get definitions: {definitions_result['error']}"
+            })
+        
+        definitions = definitions_result.get('definitions', [])
+        results.append({'success': True, 'message': f'✅ Found {len(definitions)} metric definitions'})
+        
+        # Get all subscriptions
+        results.append({'success': True, 'message': '👥 Retrieving all subscriptions...'})
+        subscriptions_result = get_all_subscriptions_rest(server_url, auth_token)
+        
+        if not subscriptions_result['success']:
+            return jsonify({
+                'success': False,
+                'error': f"Failed to get subscriptions: {subscriptions_result['error']}"
+            })
+        
+        all_subscriptions = subscriptions_result.get('subscriptions', [])
+        results.append({'success': True, 'message': f'✅ Found {len(all_subscriptions)} total subscriptions'})
+        
+        # Collect all metrics for all definitions
+        results.append({'success': True, 'message': '📈 Retrieving metrics for each definition...'})
+        
+        all_metrics = []
+        definition_metrics_map = {}
+        
+        for i, definition in enumerate(definitions, 1):
+            def_id = definition.get('id')
+            def_name = definition.get('metadata', {}).get('name', 'Unnamed')
+            
+            metrics_result = get_all_metrics_for_definition_rest(server_url, auth_token, def_id)
+            
+            if metrics_result['success']:
+                metrics = metrics_result.get('metrics', [])
+                definition_metrics_map[def_id] = metrics
+                all_metrics.extend(metrics)
+                
+                if i % 10 == 0 or i == len(definitions):
+                    results.append({'success': True, 'message': f'  Progress: {i}/{len(definitions)} definitions processed...'})
+        
+        results.append({'success': True, 'message': f'✅ Found {len(all_metrics)} total metrics across all definitions'})
+        
+        # Build analytics data structures
+        results.append({'success': True, 'message': '🔍 Analyzing data...'})
+        
+        # Map metric_id to subscription count
+        metric_follower_count = {}
+        unique_followers = set()
+        
+        for sub in all_subscriptions:
+            metric_id = sub.get('metric_id')
+            user_id = sub.get('follower', {}).get('user_id')
+            
+            if metric_id:
+                metric_follower_count[metric_id] = metric_follower_count.get(metric_id, 0) + 1
+            
+            if user_id:
+                unique_followers.add(user_id)
+        
+        # Build metric details with follower counts
+        metrics_with_followers = []
+        for metric in all_metrics:
+            metric_id = metric.get('id')
+            follower_count = metric_follower_count.get(metric_id, 0)
+            
+            metrics_with_followers.append({
+                'id': metric_id,
+                'definition_id': metric.get('definition_id'),
+                'follower_count': follower_count,
+                'is_default': metric.get('is_default', False)
+            })
+        
+        # Sort metrics by follower count
+        top_metrics = sorted(metrics_with_followers, key=lambda x: x['follower_count'], reverse=True)[:10]
+        
+        # Build definition analytics
+        definition_analytics = []
+        datasource_usage = {}
+        
+        for definition in definitions:
+            def_id = definition.get('id')
+            def_name = definition.get('metadata', {}).get('name', 'Unnamed')
+            def_datasource_id = definition.get('datasource', {}).get('id', 'Unknown')
+            is_certified = definition.get('certified', False)
+            
+            # Count metrics and followers for this definition
+            def_metrics = definition_metrics_map.get(def_id, [])
+            total_followers = sum([metric_follower_count.get(m.get('id'), 0) for m in def_metrics])
+            
+            definition_analytics.append({
+                'id': def_id,
+                'name': def_name,
+                'datasource_id': def_datasource_id,
+                'is_certified': is_certified,
+                'metric_count': len(def_metrics),
+                'total_followers': total_followers
+            })
+            
+            # Track datasource usage
+            if def_datasource_id != 'Unknown':
+                if def_datasource_id not in datasource_usage:
+                    datasource_usage[def_datasource_id] = {
+                        'definition_count': 0,
+                        'metric_count': 0,
+                        'follower_count': 0
+                    }
+                
+                datasource_usage[def_datasource_id]['definition_count'] += 1
+                datasource_usage[def_datasource_id]['metric_count'] += len(def_metrics)
+                datasource_usage[def_datasource_id]['follower_count'] += total_followers
+        
+        # Sort definitions by total followers
+        top_definitions = sorted(definition_analytics, key=lambda x: x['total_followers'], reverse=True)[:10]
+        
+        # Sort datasources by usage
+        top_datasources = sorted(
+            [{'id': ds_id, **stats} for ds_id, stats in datasource_usage.items()],
+            key=lambda x: x['follower_count'],
+            reverse=True
+        )[:10]
+        
+        # Build summary
+        results.append({'success': True, 'message': '✅ Analysis complete!'})
+        
+        analytics_data = {
+            'summary': {
+                'total_definitions': len(definitions),
+                'total_metrics': len(all_metrics),
+                'total_subscriptions': len(all_subscriptions),
+                'unique_followers': len(unique_followers),
+                'certified_definitions': sum(1 for d in definitions if d.get('certified', False)),
+                'unique_datasources': len(datasource_usage)
+            },
+            'top_metrics': top_metrics,
+            'top_definitions': top_definitions,
+            'top_datasources': top_datasources,
+            'definition_details': definition_analytics
+        }
+        
+        return jsonify({
+            'success': True,
+            'results': results,
+            'analytics': analytics_data,
+            'summary': f"✅ Analytics generated successfully! Found {len(definitions)} definitions, {len(all_metrics)} metrics, {len(all_subscriptions)} subscriptions from {len(unique_followers)} unique users"
+        })
+        
+    except Exception as e:
+        # Get full stack trace
+        tb_str = traceback.format_exc()
+        print(f"ERROR in pulse_analytics: {tb_str}")
         
         return jsonify({
             'success': False,

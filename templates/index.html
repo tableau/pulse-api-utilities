@@ -503,6 +503,7 @@
             <button class="tab-button" onclick="showTab('update-preferences')">⚙️ Update Preferences</button>
             <button class="tab-button" onclick="showTab('check-certified')">✅ Check Certified</button>
             <button class="tab-button" onclick="showTab('bulk-scoped')">📊 Bulk Scoped Metrics</button>
+            <button class="tab-button" onclick="showTab('analytics')">📈 Analytics</button>
         </div>
 
         <!-- Home Tab - Utility Selector -->
@@ -580,6 +581,18 @@
                             <span>📄 CSV upload support</span>
                             <span>🔍 Multiple filter values per metric</span>
                             <span>👥 Auto-assign followers by email</span>
+                        </div>
+                        <button class="utility-button">Get Started</button>
+                    </div>
+
+                    <div class="utility-card" onclick="showTab('analytics')">
+                        <div class="utility-icon">📈</div>
+                        <h3>Pulse Analytics</h3>
+                        <p>Get comprehensive insights into metric usage, followers, and datasource adoption across your site</p>
+                        <div class="utility-features">
+                            <span>📊 Metric & definition statistics</span>
+                            <span>👥 Follower analytics</span>
+                            <span>🗄️ Datasource usage insights</span>
                         </div>
                         <button class="utility-button">Get Started</button>
                     </div>
@@ -1135,6 +1148,76 @@
             </form>
         </div>
 
+        <!-- Pulse Analytics Tab -->
+        <div id="analytics" class="tab-content">
+            <div class="form-header">
+                <h2>📈 Pulse Analytics</h2>
+                <p>Get comprehensive insights into metric usage, followers, and datasource adoption</p>
+                <button type="button" class="button secondary back-button" onclick="showTab('home')">← Back to Home</button>
+            </div>
+            
+            <form id="analyticsForm" onsubmit="submitAnalytics(event)">
+                <!-- Server Connection Section -->
+                <div class="form-section">
+                    <h3>🔗 Server Connection</h3>
+                    <div class="form-row">
+                        <input type="url" id="analytics_server_url" name="server_url" placeholder="Tableau Server URL (e.g., https://your-server.com)" required>
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="analytics_api_version" name="api_version" value="3.26" placeholder="API Version (e.g., 3.26)" pattern="^\d+\.\d+$">
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="analytics_site_content_url" name="site_content_url" placeholder="Site Content URL (blank for Default)">
+                    </div>
+                    <div class="form-row">
+                        <select id="analytics_auth_method" name="auth_method" onchange="toggleAuthFields('analytics')" required>
+                            <option value="">Select Authentication Method</option>
+                            <option value="password">Username/Password</option>
+                            <option value="pat">Personal Access Token</option>
+                        </select>
+                    </div>
+                    <div id="analytics_user_auth" class="auth-fields" style="display: none;">
+                        <div class="form-row">
+                            <input type="text" id="analytics_username" name="username" placeholder="Username">
+                        </div>
+                        <div class="form-row">
+                            <input type="password" id="analytics_password" name="password" placeholder="Password">
+                        </div>
+                    </div>
+                    <div id="analytics_pat_auth" class="auth-fields" style="display: none;">
+                        <div class="form-row">
+                            <input type="text" id="analytics_pat_name" name="pat_name" placeholder="PAT Name">
+                        </div>
+                        <div class="form-row">
+                            <input type="password" id="analytics_pat_token" name="pat_token" placeholder="PAT Value">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="button">📈 Generate Analytics</button>
+                    <button type="button" class="button secondary" onclick="showTab('home')">← Back to Home</button>
+                </div>
+            </form>
+
+            <!-- Analytics Results Display -->
+            <div id="analyticsResults" style="display: none; margin-top: 30px;">
+                <h3>📊 Analytics Dashboard</h3>
+                
+                <!-- Summary Cards -->
+                <div id="analyticsSummary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 30px;"></div>
+                
+                <!-- Top Metrics Table -->
+                <div id="topMetricsSection" style="margin-bottom: 30px;"></div>
+                
+                <!-- Top Definitions Table -->
+                <div id="topDefinitionsSection" style="margin-bottom: 30px;"></div>
+                
+                <!-- Top Datasources Table -->
+                <div id="topDatasourcesSection"></div>
+            </div>
+        </div>
+
         <!-- Results section -->
         <div id="results" class="results-section" style="display: none;">
             <h3 id="resultsTitle">📊 Results</h3>
@@ -1579,10 +1662,176 @@
             reader.readAsText(file);
         }
 
+        async function submitAnalytics(event) {
+            event.preventDefault();
+            
+            const formData = new FormData(event.target);
+            const data = Object.fromEntries(formData.entries());
+            
+            // Clear previous results and show new progress
+            clearPreviousResults();
+            showProgress('📈 Generating analytics...', '📈 Pulse Analytics');
+            
+            try {
+                const response = await fetch('/pulse-analytics', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Hide progress and show analytics dashboard
+                    document.getElementById('results').style.display = 'none';
+                    displayAnalytics(result.analytics);
+                } else {
+                    showError(result.error || 'Unknown error occurred', '❌ Analytics generation failed', result);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showError('Failed to communicate with server: ' + error.message, '❌ Analytics generation failed');
+            }
+        }
+        
+        function displayAnalytics(analytics) {
+            const analyticsResults = document.getElementById('analyticsResults');
+            const summary = analytics.summary;
+            
+            // Show the analytics results section
+            analyticsResults.style.display = 'block';
+            analyticsResults.scrollIntoView({ behavior: 'smooth' });
+            
+            // Display summary cards
+            const summaryDiv = document.getElementById('analyticsSummary');
+            summaryDiv.innerHTML = `
+                <div style="background: rgba(78, 205, 196, 0.2); padding: 20px; border-radius: 10px; text-align: center;">
+                    <div style="font-size: 2.5em; font-weight: bold; color: #4ECDC4;">${summary.total_definitions}</div>
+                    <div style="margin-top: 10px;">Definitions</div>
+                </div>
+                <div style="background: rgba(255, 229, 93, 0.2); padding: 20px; border-radius: 10px; text-align: center;">
+                    <div style="font-size: 2.5em; font-weight: bold; color: #FFE55D;">${summary.total_metrics}</div>
+                    <div style="margin-top: 10px;">Metrics</div>
+                </div>
+                <div style="background: rgba(255, 107, 107, 0.2); padding: 20px; border-radius: 10px; text-align: center;">
+                    <div style="font-size: 2.5em; font-weight: bold; color: #FF6B6B;">${summary.total_subscriptions}</div>
+                    <div style="margin-top: 10px;">Subscriptions</div>
+                </div>
+                <div style="background: rgba(200, 214, 229, 0.2); padding: 20px; border-radius: 10px; text-align: center;">
+                    <div style="font-size: 2.5em; font-weight: bold; color: #C8D6E5;">${summary.unique_followers}</div>
+                    <div style="margin-top: 10px;">Unique Followers</div>
+                </div>
+                <div style="background: rgba(40, 167, 69, 0.2); padding: 20px; border-radius: 10px; text-align: center;">
+                    <div style="font-size: 2.5em; font-weight: bold; color: #28a745;">${summary.certified_definitions}</div>
+                    <div style="margin-top: 10px;">Certified</div>
+                </div>
+                <div style="background: rgba(108, 92, 231, 0.2); padding: 20px; border-radius: 10px; text-align: center;">
+                    <div style="font-size: 2.5em; font-weight: bold; color: #6C5CE7;">${summary.unique_datasources}</div>
+                    <div style="margin-top: 10px;">Datasources</div>
+                </div>
+            `;
+            
+            // Display top metrics
+            const topMetricsSection = document.getElementById('topMetricsSection');
+            const topMetricsHTML = analytics.top_metrics.map((metric, index) => `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td style="font-family: monospace; font-size: 0.9em;">${metric.id}</td>
+                    <td>${metric.is_default ? '✅ Yes' : 'No'}</td>
+                    <td style="font-weight: bold; color: #4ECDC4;">${metric.follower_count}</td>
+                </tr>
+            `).join('');
+            
+            topMetricsSection.innerHTML = `
+                <h4>🏆 Top 10 Most Followed Metrics</h4>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; background: rgba(255, 255, 255, 0.05); border-radius: 10px;">
+                        <thead>
+                            <tr style="background: rgba(78, 205, 196, 0.2);">
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">#</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Metric ID</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Default</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Followers</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${topMetricsHTML || '<tr><td colspan="4" style="padding: 20px; text-align: center;">No metrics found</td></tr>'}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            // Display top definitions
+            const topDefinitionsSection = document.getElementById('topDefinitionsSection');
+            const topDefinitionsHTML = analytics.top_definitions.map((def, index) => `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td>${def.name}</td>
+                    <td>${def.is_certified ? '✅ Yes' : 'No'}</td>
+                    <td>${def.metric_count}</td>
+                    <td style="font-weight: bold; color: #FFE55D;">${def.total_followers}</td>
+                </tr>
+            `).join('');
+            
+            topDefinitionsSection.innerHTML = `
+                <h4>📊 Top 10 Definitions by Total Followers</h4>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; background: rgba(255, 255, 255, 0.05); border-radius: 10px;">
+                        <thead>
+                            <tr style="background: rgba(255, 229, 93, 0.2);">
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">#</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Definition Name</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Certified</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Metrics</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Total Followers</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${topDefinitionsHTML || '<tr><td colspan="5" style="padding: 20px; text-align: center;">No definitions found</td></tr>'}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            // Display top datasources
+            const topDatasourcesSection = document.getElementById('topDatasourcesSection');
+            const topDatasourcesHTML = analytics.top_datasources.map((ds, index) => `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td style="font-family: monospace; font-size: 0.9em;">${ds.id}</td>
+                    <td>${ds.definition_count}</td>
+                    <td>${ds.metric_count}</td>
+                    <td style="font-weight: bold; color: #6C5CE7;">${ds.follower_count}</td>
+                </tr>
+            `).join('');
+            
+            topDatasourcesSection.innerHTML = `
+                <h4>🗄️ Top 10 Datasources by Usage</h4>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; background: rgba(255, 255, 255, 0.05); border-radius: 10px;">
+                        <thead>
+                            <tr style="background: rgba(108, 92, 231, 0.2);">
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">#</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Datasource ID</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Definitions</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Metrics</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Total Followers</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${topDatasourcesHTML || '<tr><td colspan="5" style="padding: 20px; text-align: center;">No datasources found</td></tr>'}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
         // Reset form and return to home
         function resetForm() {
             // Reset all forms
-            const forms = ['copyDefinitionsForm', 'manageFollowersForm', 'swapDatasourcesForm', 'updatePreferencesForm', 'checkCertifiedForm', 'bulkScopedForm'];
+            const forms = ['copyDefinitionsForm', 'manageFollowersForm', 'swapDatasourcesForm', 'updatePreferencesForm', 'checkCertifiedForm', 'bulkScopedForm', 'analyticsForm'];
             forms.forEach(formId => {
                 const form = document.getElementById(formId);
                 if (form) form.reset();
@@ -1590,6 +1839,10 @@
             
             // Clear all previous results
             clearPreviousResults();
+            
+            // Hide analytics results
+            const analyticsResults = document.getElementById('analyticsResults');
+            if (analyticsResults) analyticsResults.style.display = 'none';
             
             // Return to home
             showTab('home');
