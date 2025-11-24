@@ -485,21 +485,22 @@ def parse_metric_definitions(data):
             if is_certified:
                 certified_count += 1
             
-            # Extract metadata
+            # Extract metadata for easy access
             metadata = definition.get('metadata', {})
-            certifier_luid = certification.get('modified_by', '')
             
-            definition_info = {
-                'id': metadata.get('id', ''),
-                'name': metadata.get('name', ''),
-                'certified': is_certified,
-                'certification_note': certification.get('note', ''),
-                'certified_by': certification.get('modified_by', 'Unknown'),
-                'certified_at': certification.get('modified_at', ''),
-                'certified_by_luid': certifier_luid
-            }
+            # Keep the full definition structure but flatten key fields for easy access
+            definition_with_cert = definition.copy()
+            definition_with_cert['id'] = metadata.get('id', '')
+            definition_with_cert['name'] = metadata.get('name', '')
+            definition_with_cert['certified'] = is_certified
             
-            definitions.append(definition_info)
+            # Also add extracted certification details for easy access
+            definition_with_cert['certification_note'] = certification.get('note', '')
+            definition_with_cert['certified_by'] = certification.get('modified_by', 'Unknown')
+            definition_with_cert['certified_at'] = certification.get('modified_at', '')
+            definition_with_cert['certified_by_luid'] = certification.get('modified_by', '')
+            
+            definitions.append(definition_with_cert)
         
         return {
             'success': True,
@@ -2084,6 +2085,10 @@ def pulse_analytics():
         definitions = definitions_result.get('definitions', [])
         results.append({'success': True, 'message': f'✅ Found {len(definitions)} metric definitions'})
         
+        # Debug: log first definition structure
+        if definitions:
+            print(f"DEBUG: First definition structure: {json.dumps(definitions[0], indent=2)}")
+        
         # Get all subscriptions
         results.append({'success': True, 'message': '👥 Retrieving all subscriptions...'})
         subscriptions_result = get_all_subscriptions_rest(server_url, auth_token)
@@ -2096,6 +2101,10 @@ def pulse_analytics():
         
         all_subscriptions = subscriptions_result.get('subscriptions', [])
         results.append({'success': True, 'message': f'✅ Found {len(all_subscriptions)} total subscriptions'})
+        
+        # Debug: log first subscription structure
+        if all_subscriptions:
+            print(f"DEBUG: First subscription structure: {json.dumps(all_subscriptions[0], indent=2)}")
         
         # Collect all metrics for all definitions
         results.append({'success': True, 'message': '📈 Retrieving metrics for each definition...'})
@@ -2118,6 +2127,10 @@ def pulse_analytics():
                     results.append({'success': True, 'message': f'  Progress: {i}/{len(definitions)} definitions processed...'})
         
         results.append({'success': True, 'message': f'✅ Found {len(all_metrics)} total metrics across all definitions'})
+        
+        # Debug: log first metric structure
+        if all_metrics:
+            print(f"DEBUG: First metric structure: {json.dumps(all_metrics[0], indent=2)}")
         
         # Build analytics data structures
         results.append({'success': True, 'message': '🔍 Analyzing data...'})
@@ -2157,9 +2170,20 @@ def pulse_analytics():
         datasource_usage = {}
         
         for definition in definitions:
-            def_id = definition.get('id')
-            def_name = definition.get('metadata', {}).get('name', 'Unnamed')
-            def_datasource_id = definition.get('datasource', {}).get('id', 'Unknown')
+            def_id = definition.get('id', 'Unknown')
+            def_name = definition.get('name', 'Unnamed')
+            
+            # Get datasource ID - try different possible locations
+            def_datasource_id = None
+            if 'datasource' in definition and definition['datasource']:
+                if isinstance(definition['datasource'], dict):
+                    def_datasource_id = definition['datasource'].get('id') or definition['datasource'].get('luid')
+                else:
+                    def_datasource_id = str(definition['datasource'])
+            
+            if not def_datasource_id:
+                def_datasource_id = definition.get('datasource_id', 'Unknown')
+            
             is_certified = definition.get('certified', False)
             
             # Count metrics and followers for this definition
@@ -2176,7 +2200,7 @@ def pulse_analytics():
             })
             
             # Track datasource usage
-            if def_datasource_id != 'Unknown':
+            if def_datasource_id and def_datasource_id != 'Unknown':
                 if def_datasource_id not in datasource_usage:
                     datasource_usage[def_datasource_id] = {
                         'definition_count': 0,
