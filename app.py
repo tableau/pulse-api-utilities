@@ -462,7 +462,7 @@ def get_users_in_group_rest(server_url, auth_token, site_id, group_id, api_versi
 
 def get_metric_definitions_rest(server_url, auth_token):
     """Get all metric definitions including certification status."""
-    endpoint = f"{server_url}/api/-/pulse/definitions"
+    endpoint = f"{server_url}/api/-/pulse/definitions?page_size=1000"
     
     headers = {
         'X-Tableau-Auth': auth_token,
@@ -475,6 +475,12 @@ def get_metric_definitions_rest(server_url, auth_token):
         
         if response.status_code == 200:
             response_data = response.json()
+            
+            # Log pagination info if present
+            total = response_data.get('total_available') or response_data.get('total')
+            if total:
+                print(f"DEBUG: Definitions API returned {total} total definitions available")
+            
             return parse_metric_definitions(response_data)
         else:
             return {'success': False, 'error': f"Failed to get definitions. Status: {response.status_code}"}
@@ -523,6 +529,8 @@ def parse_metric_definitions(data):
             definition_with_cert['certified_by_luid'] = certification.get('modified_by', '')
             
             definitions.append(definition_with_cert)
+        
+        print(f"DEBUG: Parsed {len(definitions)} definitions from API response")
         
         return {
             'success': True,
@@ -2187,6 +2195,16 @@ def pulse_analytics():
         # Debug: log first metric structure
         if all_metrics:
             print(f"DEBUG: First metric structure: {json.dumps(all_metrics[0], indent=2)}")
+            print(f"DEBUG: Sample metric has definition_id: {all_metrics[0].get('definition_id')}")
+            
+        # Also check if any metrics have definition_ids not in our definitions list
+        metric_def_ids = set(m.get('definition_id') for m in all_metrics if m.get('definition_id'))
+        definition_ids = set(d.get('id') for d in definitions if d.get('id'))
+        missing_def_ids = metric_def_ids - definition_ids
+        
+        if missing_def_ids:
+            print(f"DEBUG: WARNING - Found {len(missing_def_ids)} definition IDs in metrics that are not in definitions list:")
+            print(f"DEBUG: Missing definition IDs: {list(missing_def_ids)[:5]}")  # Show first 5
         
         # Build analytics data structures
         results.append({'success': True, 'message': '🔍 Analyzing data...'})
@@ -2209,11 +2227,27 @@ def pulse_analytics():
         metrics_with_followers = []
         definition_id_to_name = {d.get('id'): d.get('name', 'Unnamed') for d in definitions}
         
+        print(f"DEBUG: Definition ID to name map has {len(definition_id_to_name)} entries")
+        
         for metric in all_metrics:
             metric_id = metric.get('id')
             follower_count = metric_follower_count.get(metric_id, 0)
             definition_id = metric.get('definition_id')
-            definition_name = definition_id_to_name.get(definition_id, 'Unknown Definition')
+            
+            # Try to get definition name from our map first
+            definition_name = definition_id_to_name.get(definition_id)
+            
+            # If not found, try to get it from the metric's metadata
+            if not definition_name:
+                # Metrics might have metadata with the definition name
+                metric_metadata = metric.get('metadata', {})
+                definition_name = metric_metadata.get('name') or metric_metadata.get('definition_name')
+                
+                if definition_name:
+                    print(f"DEBUG: Found definition name '{definition_name}' in metric metadata for definition_id {definition_id}")
+                else:
+                    print(f"DEBUG: Could not find definition name for definition_id {definition_id}, metric_id {metric_id}")
+                    definition_name = 'Unknown Definition'
             
             # Build metric name: Definition name + (Default) or (Scoped)
             is_default = metric.get('is_default', False)
