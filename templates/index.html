@@ -1749,7 +1749,7 @@
                 topMetricsHTML = analytics.top_metrics.map((metric, index) => `
                     <tr>
                         <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${index + 1}</td>
-                        <td style="font-family: monospace; font-size: 0.9em; padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${metric.id || 'Unknown'}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${metric.name || metric.definition_name || 'Unknown'}</td>
                         <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${metric.is_default ? '✅ Yes' : 'No'}</td>
                         <td style="font-weight: bold; color: #4ECDC4; padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${metric.follower_count || 0}</td>
                     </tr>
@@ -1765,7 +1765,7 @@
                         <thead>
                             <tr style="background: rgba(78, 205, 196, 0.2);">
                                 <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">#</th>
-                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Metric ID</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Metric Name</th>
                                 <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Default</th>
                                 <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Followers</th>
                             </tr>
@@ -1827,7 +1827,7 @@
                 topDatasourcesHTML = analytics.top_datasources.map((ds, index) => `
                     <tr>
                         <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${index + 1}</td>
-                        <td style="font-family: monospace; font-size: 0.9em; padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${ds.id || 'Unknown'}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${ds.name || ds.id || 'Unknown'}</td>
                         <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${ds.definition_count || 0}</td>
                         <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${ds.metric_count || 0}</td>
                         <td style="font-weight: bold; color: #6C5CE7; padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${ds.follower_count || 0}</td>
@@ -1844,7 +1844,7 @@
                         <thead>
                             <tr style="background: rgba(108, 92, 231, 0.2);">
                                 <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">#</th>
-                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Datasource ID</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Datasource Name</th>
                                 <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Definitions</th>
                                 <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Metrics</th>
                                 <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Total Followers</th>

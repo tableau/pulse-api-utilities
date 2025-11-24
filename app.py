@@ -71,6 +71,28 @@ def get_datasource_id_rest(host, token, site_id, datasource_name):
             return ds["id"]
     raise ValueError(f"Datasource '{datasource_name}' not found")
 
+def get_all_datasources_rest(host, token, site_id, api_version):
+    """Get all datasources on the site and return ID-to-name mapping"""
+    url = f"{host}/api/{api_version}/sites/{site_id}/datasources?pageSize=1000"
+    headers = {"X-Tableau-Auth": token, "Accept": "application/json"}
+    
+    try:
+        r = requests.get(url, headers=headers)
+        r.raise_for_status()
+        ds_list = r.json().get("datasources", {}).get("datasource", [])
+        
+        # Build ID to name mapping
+        datasource_map = {}
+        for ds in ds_list:
+            ds_id = ds.get("id")
+            ds_name = ds.get("name", "Unnamed Datasource")
+            if ds_id:
+                datasource_map[ds_id] = ds_name
+        
+        return {'success': True, 'datasources': datasource_map}
+    except Exception as e:
+        return {'success': False, 'error': f"Error getting datasources: {str(e)}"}
+
 # ------------------------------
 # Pulse API: definitions/metrics
 # ------------------------------
@@ -2081,6 +2103,17 @@ def pulse_analytics():
         site_id = auth_result.get('site_id', '')
         results.append({'success': True, 'message': '✅ Authentication successful!'})
         
+        # Get all datasources for name mapping
+        results.append({'success': True, 'message': '🗄️ Retrieving datasource names...'})
+        datasources_result = get_all_datasources_rest(server_url, auth_token, site_id, api_version)
+        
+        datasource_id_to_name = {}
+        if datasources_result['success']:
+            datasource_id_to_name = datasources_result['datasources']
+            results.append({'success': True, 'message': f'✅ Found {len(datasource_id_to_name)} datasources'})
+        else:
+            results.append({'success': True, 'message': f'⚠️  Could not retrieve datasource names: {datasources_result.get("error")}'})
+        
         # Get all definitions
         results.append({'success': True, 'message': '📊 Retrieving all metric definitions...'})
         definitions_result = get_metric_definitions_rest(server_url, auth_token)
@@ -2172,17 +2205,34 @@ def pulse_analytics():
             if user_id:
                 unique_followers.add(user_id)
         
-        # Build metric details with follower counts
+        # Build metric details with follower counts and names
         metrics_with_followers = []
+        definition_id_to_name = {d.get('id'): d.get('name', 'Unnamed') for d in definitions}
+        
         for metric in all_metrics:
             metric_id = metric.get('id')
             follower_count = metric_follower_count.get(metric_id, 0)
+            definition_id = metric.get('definition_id')
+            definition_name = definition_id_to_name.get(definition_id, 'Unknown Definition')
+            
+            # Build metric name: Definition name + (Default) or (Scoped)
+            is_default = metric.get('is_default', False)
+            metric_name = definition_name
+            if is_default:
+                metric_name += " (Default)"
+            else:
+                # Check if it has filters to indicate it's scoped
+                filters = metric.get('specification', {}).get('filters', [])
+                if filters:
+                    metric_name += " (Scoped)"
             
             metrics_with_followers.append({
                 'id': metric_id,
-                'definition_id': metric.get('definition_id'),
+                'name': metric_name,
+                'definition_id': definition_id,
+                'definition_name': definition_name,
                 'follower_count': follower_count,
-                'is_default': metric.get('is_default', False)
+                'is_default': is_default
             })
         
         print(f"DEBUG: Total metrics with followers built: {len(metrics_with_followers)}")
@@ -2265,9 +2315,9 @@ def pulse_analytics():
         # Sort definitions by total followers
         top_definitions = sorted(definition_analytics, key=lambda x: x['total_followers'], reverse=True)[:10]
         
-        # Sort datasources by usage
+        # Sort datasources by usage and add names
         top_datasources = sorted(
-            [{'id': ds_id, **stats} for ds_id, stats in datasource_usage.items()],
+            [{'id': ds_id, 'name': datasource_id_to_name.get(ds_id, ds_id), **stats} for ds_id, stats in datasource_usage.items()],
             key=lambda x: x['follower_count'],
             reverse=True
         )[:10]
