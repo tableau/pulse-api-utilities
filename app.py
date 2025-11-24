@@ -576,12 +576,21 @@ def get_all_metrics_for_definition_rest(server_url, auth_token, definition_id):
     try:
         response = requests.get(url, headers=headers, verify=True)
         
+        print(f"DEBUG: Metrics API response status for {definition_id}: {response.status_code}")
+        
         if response.status_code == 200:
-            return {'success': True, 'metrics': response.json().get('metrics', [])}
+            response_data = response.json()
+            metrics = response_data.get('metrics', [])
+            print(f"DEBUG: Metrics API returned {len(metrics)} metrics for {definition_id}")
+            if metrics:
+                print(f"DEBUG: First metric ID: {metrics[0].get('id', 'Unknown')}")
+            return {'success': True, 'metrics': metrics}
         else:
-            return {'success': False, 'error': f"Failed to get metrics. Status: {response.status_code}"}
+            print(f"DEBUG: Metrics API error: {response.text}")
+            return {'success': False, 'error': f"Failed to get metrics. Status: {response.status_code}", 'response': response.text}
             
     except Exception as e:
+        print(f"DEBUG: Exception getting metrics: {str(e)}")
         return {'success': False, 'error': f"Error getting metrics: {str(e)}"}
 
 def get_all_subscriptions_rest(server_url, auth_token):
@@ -2114,7 +2123,9 @@ def pulse_analytics():
         
         for i, definition in enumerate(definitions, 1):
             def_id = definition.get('id')
-            def_name = definition.get('metadata', {}).get('name', 'Unnamed')
+            def_name = definition.get('name', 'Unnamed')  # Use flattened 'name' field
+            
+            print(f"DEBUG: Fetching metrics for definition {i}/{len(definitions)}: {def_name} (ID: {def_id})")
             
             metrics_result = get_all_metrics_for_definition_rest(server_url, auth_token, def_id)
             
@@ -2123,8 +2134,12 @@ def pulse_analytics():
                 definition_metrics_map[def_id] = metrics
                 all_metrics.extend(metrics)
                 
+                print(f"DEBUG: Found {len(metrics)} metrics for definition {def_name}")
+                
                 if i % 10 == 0 or i == len(definitions):
                     results.append({'success': True, 'message': f'  Progress: {i}/{len(definitions)} definitions processed...'})
+            else:
+                print(f"DEBUG: Failed to get metrics for {def_name}: {metrics_result.get('error')}")
         
         results.append({'success': True, 'message': f'✅ Found {len(all_metrics)} total metrics across all definitions'})
         
@@ -2183,12 +2198,23 @@ def pulse_analytics():
             
             # Get datasource ID - try different possible locations
             def_datasource_id = None
-            if 'datasource' in definition and definition['datasource']:
+            
+            # Try specification.datasource.id first (most common location)
+            if 'specification' in definition and 'datasource' in definition['specification']:
+                spec_ds = definition['specification']['datasource']
+                if isinstance(spec_ds, dict):
+                    def_datasource_id = spec_ds.get('id') or spec_ds.get('luid')
+                else:
+                    def_datasource_id = str(spec_ds)
+            
+            # Fall back to direct datasource field
+            if not def_datasource_id and 'datasource' in definition and definition['datasource']:
                 if isinstance(definition['datasource'], dict):
                     def_datasource_id = definition['datasource'].get('id') or definition['datasource'].get('luid')
                 else:
                     def_datasource_id = str(definition['datasource'])
             
+            # Last resort
             if not def_datasource_id:
                 def_datasource_id = definition.get('datasource_id', 'Unknown')
             
