@@ -2115,33 +2115,41 @@ def pulse_analytics():
         if all_subscriptions:
             print(f"DEBUG: First subscription structure: {json.dumps(all_subscriptions[0], indent=2)}")
         
-        # Collect all metrics for all definitions
-        results.append({'success': True, 'message': '📈 Retrieving metrics for each definition...'})
+        # Extract unique metric IDs from subscriptions
+        results.append({'success': True, 'message': '📈 Extracting metric IDs from subscriptions...'})
+        
+        unique_metric_ids = set()
+        for sub in all_subscriptions:
+            metric_id = sub.get('metric_id')
+            if metric_id:
+                unique_metric_ids.add(metric_id)
+        
+        results.append({'success': True, 'message': f'✅ Found {len(unique_metric_ids)} unique metric IDs'})
+        
+        # Fetch details for each unique metric
+        results.append({'success': True, 'message': '📊 Retrieving metric details...'})
         
         all_metrics = []
         definition_metrics_map = {}
         
-        for i, definition in enumerate(definitions, 1):
-            def_id = definition.get('id')
-            def_name = definition.get('name', 'Unnamed')  # Use flattened 'name' field
+        for i, metric_id in enumerate(unique_metric_ids, 1):
+            metric_result = get_metric_details_rest(server_url, auth_token, metric_id)
             
-            print(f"DEBUG: Fetching metrics for definition {i}/{len(definitions)}: {def_name} (ID: {def_id})")
-            
-            metrics_result = get_all_metrics_for_definition_rest(server_url, auth_token, def_id)
-            
-            if metrics_result['success']:
-                metrics = metrics_result.get('metrics', [])
-                definition_metrics_map[def_id] = metrics
-                all_metrics.extend(metrics)
+            if metric_result['success']:
+                metric = metric_result['metric']
+                all_metrics.append(metric)
                 
-                print(f"DEBUG: Found {len(metrics)} metrics for definition {def_name}")
+                # Map metric to its definition
+                def_id = metric.get('definition_id')
+                if def_id:
+                    if def_id not in definition_metrics_map:
+                        definition_metrics_map[def_id] = []
+                    definition_metrics_map[def_id].append(metric)
                 
-                if i % 10 == 0 or i == len(definitions):
-                    results.append({'success': True, 'message': f'  Progress: {i}/{len(definitions)} definitions processed...'})
-            else:
-                print(f"DEBUG: Failed to get metrics for {def_name}: {metrics_result.get('error')}")
+                if i % 25 == 0 or i == len(unique_metric_ids):
+                    results.append({'success': True, 'message': f'  Progress: {i}/{len(unique_metric_ids)} metrics retrieved...'})
         
-        results.append({'success': True, 'message': f'✅ Found {len(all_metrics)} total metrics across all definitions'})
+        results.append({'success': True, 'message': f'✅ Retrieved {len(all_metrics)} metric details'})
         
         # Debug: log first metric structure
         if all_metrics:
