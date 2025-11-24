@@ -1700,6 +1700,12 @@
             const analyticsResults = document.getElementById('analyticsResults');
             const summary = analytics.summary;
             
+            // Debug logging
+            console.log('Analytics data received:', analytics);
+            console.log('Top metrics:', analytics.top_metrics);
+            console.log('Top definitions:', analytics.top_definitions);
+            console.log('Top datasources:', analytics.top_datasources);
+            
             // Show the analytics results section
             analyticsResults.style.display = 'block';
             analyticsResults.scrollIntoView({ behavior: 'smooth' });
@@ -1735,14 +1741,22 @@
             
             // Display top metrics
             const topMetricsSection = document.getElementById('topMetricsSection');
-            const topMetricsHTML = analytics.top_metrics.map((metric, index) => `
-                <tr>
-                    <td>${index + 1}</td>
-                    <td style="font-family: monospace; font-size: 0.9em;">${metric.id}</td>
-                    <td>${metric.is_default ? '✅ Yes' : 'No'}</td>
-                    <td style="font-weight: bold; color: #4ECDC4;">${metric.follower_count}</td>
-                </tr>
-            `).join('');
+            
+            console.log('Processing top metrics, count:', analytics.top_metrics?.length);
+            
+            let topMetricsHTML = '';
+            if (analytics.top_metrics && analytics.top_metrics.length > 0) {
+                topMetricsHTML = analytics.top_metrics.map((metric, index) => `
+                    <tr>
+                        <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${index + 1}</td>
+                        <td style="font-family: monospace; font-size: 0.9em; padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${metric.id || 'Unknown'}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${metric.is_default ? '✅ Yes' : 'No'}</td>
+                        <td style="font-weight: bold; color: #4ECDC4; padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${metric.follower_count || 0}</td>
+                    </tr>
+                `).join('');
+            } else {
+                topMetricsHTML = '<tr><td colspan="4" style="padding: 20px; text-align: center;">No metrics found</td></tr>';
+            }
             
             topMetricsSection.innerHTML = `
                 <h4>🏆 Top 10 Most Followed Metrics</h4>
@@ -1757,7 +1771,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            ${topMetricsHTML || '<tr><td colspan="4" style="padding: 20px; text-align: center;">No metrics found</td></tr>'}
+                            ${topMetricsHTML}
                         </tbody>
                     </table>
                 </div>
@@ -1765,15 +1779,23 @@
             
             // Display top definitions
             const topDefinitionsSection = document.getElementById('topDefinitionsSection');
-            const topDefinitionsHTML = analytics.top_definitions.map((def, index) => `
-                <tr>
-                    <td>${index + 1}</td>
-                    <td>${def.name}</td>
-                    <td>${def.is_certified ? '✅ Yes' : 'No'}</td>
-                    <td>${def.metric_count}</td>
-                    <td style="font-weight: bold; color: #FFE55D;">${def.total_followers}</td>
-                </tr>
-            `).join('');
+            
+            console.log('Processing top definitions, count:', analytics.top_definitions?.length);
+            
+            let topDefinitionsHTML = '';
+            if (analytics.top_definitions && analytics.top_definitions.length > 0) {
+                topDefinitionsHTML = analytics.top_definitions.map((def, index) => `
+                    <tr>
+                        <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${index + 1}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${def.name || 'Unnamed'}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${def.is_certified ? '✅ Yes' : 'No'}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${def.metric_count || 0}</td>
+                        <td style="font-weight: bold; color: #FFE55D; padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${def.total_followers || 0}</td>
+                    </tr>
+                `).join('');
+            } else {
+                topDefinitionsHTML = '<tr><td colspan="5" style="padding: 20px; text-align: center;">No definitions found</td></tr>';
+            }
             
             topDefinitionsSection.innerHTML = `
                 <h4>📊 Top 10 Definitions by Total Followers</h4>
@@ -1789,7 +1811,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            ${topDefinitionsHTML || '<tr><td colspan="5" style="padding: 20px; text-align: center;">No definitions found</td></tr>'}
+                            ${topDefinitionsHTML}
                         </tbody>
                     </table>
                 </div>
@@ -1797,15 +1819,23 @@
             
             // Display top datasources
             const topDatasourcesSection = document.getElementById('topDatasourcesSection');
-            const topDatasourcesHTML = analytics.top_datasources.map((ds, index) => `
-                <tr>
-                    <td>${index + 1}</td>
-                    <td style="font-family: monospace; font-size: 0.9em;">${ds.id}</td>
-                    <td>${ds.definition_count}</td>
-                    <td>${ds.metric_count}</td>
-                    <td style="font-weight: bold; color: #6C5CE7;">${ds.follower_count}</td>
-                </tr>
-            `).join('');
+            
+            console.log('Processing top datasources, count:', analytics.top_datasources?.length);
+            
+            let topDatasourcesHTML = '';
+            if (analytics.top_datasources && analytics.top_datasources.length > 0) {
+                topDatasourcesHTML = analytics.top_datasources.map((ds, index) => `
+                    <tr>
+                        <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${index + 1}</td>
+                        <td style="font-family: monospace; font-size: 0.9em; padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${ds.id || 'Unknown'}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${ds.definition_count || 0}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${ds.metric_count || 0}</td>
+                        <td style="font-weight: bold; color: #6C5CE7; padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${ds.follower_count || 0}</td>
+                    </tr>
+                `).join('');
+            } else {
+                topDatasourcesHTML = '<tr><td colspan="5" style="padding: 20px; text-align: center;">No datasources found</td></tr>';
+            }
             
             topDatasourcesSection.innerHTML = `
                 <h4>🗄️ Top 10 Datasources by Usage</h4>
@@ -1821,7 +1851,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            ${topDatasourcesHTML || '<tr><td colspan="5" style="padding: 20px; text-align: center;">No datasources found</td></tr>'}
+                            ${topDatasourcesHTML}
                         </tbody>
                     </table>
                 </div>

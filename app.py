@@ -2162,8 +2162,16 @@ def pulse_analytics():
                 'is_default': metric.get('is_default', False)
             })
         
+        print(f"DEBUG: Total metrics with followers built: {len(metrics_with_followers)}")
+        print(f"DEBUG: Metric follower count map size: {len(metric_follower_count)}")
+        print(f"DEBUG: Sample follower counts: {list(metric_follower_count.items())[:5]}")
+        
         # Sort metrics by follower count
         top_metrics = sorted(metrics_with_followers, key=lambda x: x['follower_count'], reverse=True)[:10]
+        
+        print(f"DEBUG: Top metrics count: {len(top_metrics)}")
+        if top_metrics:
+            print(f"DEBUG: Top metric sample: {top_metrics[0]}")
         
         # Build definition analytics
         definition_analytics = []
@@ -2212,6 +2220,14 @@ def pulse_analytics():
                 datasource_usage[def_datasource_id]['metric_count'] += len(def_metrics)
                 datasource_usage[def_datasource_id]['follower_count'] += total_followers
         
+        print(f"DEBUG: Definition analytics count: {len(definition_analytics)}")
+        if definition_analytics:
+            print(f"DEBUG: Sample definition analytics: {definition_analytics[0]}")
+        
+        print(f"DEBUG: Datasource usage count: {len(datasource_usage)}")
+        if datasource_usage:
+            print(f"DEBUG: Sample datasource: {list(datasource_usage.items())[0]}")
+        
         # Sort definitions by total followers
         top_definitions = sorted(definition_analytics, key=lambda x: x['total_followers'], reverse=True)[:10]
         
@@ -2221,6 +2237,9 @@ def pulse_analytics():
             key=lambda x: x['follower_count'],
             reverse=True
         )[:10]
+        
+        print(f"DEBUG: Top definitions count: {len(top_definitions)}")
+        print(f"DEBUG: Top datasources count: {len(top_datasources)}")
         
         # Build summary
         results.append({'success': True, 'message': '✅ Analysis complete!'})
