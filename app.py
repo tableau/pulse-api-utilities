@@ -2885,6 +2885,19 @@ def tcm_activity_logs():
         
         results.append({'success': True, 'message': f'  Found {len(subscription_events)} subscription events'})
         
+        # Debug: Show sample events
+        if subscription_events:
+            print(f"\nDEBUG: Sample subscription event structure:")
+            sample = subscription_events[0]
+            print(f"  Keys: {list(sample.keys())}")
+            print(f"  Full event: {json.dumps(sample, indent=2)[:500]}")
+        else:
+            print(f"\nDEBUG: No subscription events parsed!")
+            print(f"DEBUG: Total log entries examined: {len(all_logs)}")
+            if all_logs:
+                print(f"DEBUG: First log entry (first 500 chars):")
+                print(all_logs[0][:500])
+        
         # Extract unique user LUIDs and metric IDs
         user_luids = set()
         metric_ids = set()
@@ -2894,11 +2907,16 @@ def tcm_activity_logs():
         metric_followers = {}  # metric_id -> set of user_luids following it
         
         for event in subscription_events:
-            actor_luid = event.get('actorLuid')
-            metric_id = event.get('metricId')
-            event_action = event.get('action', '').lower()
+            # Try different possible field names
+            actor_luid = event.get('actorLuid') or event.get('actor_luid') or event.get('userLuid') or event.get('user_luid')
+            metric_id = event.get('metricId') or event.get('metric_id')
+            event_action = event.get('action', '') or event.get('eventType', '') or event.get('event_type', '')
+            event_action = event_action.lower()
             
             if not actor_luid or not metric_id:
+                # Debug first few failures
+                if len(user_luids) == 0 and len([e for e in subscription_events if subscription_events.index(e) < 3]) <= 3:
+                    print(f"DEBUG: Skipping event (missing fields): {json.dumps(event, indent=2)[:300]}")
                 continue
             
             user_luids.add(actor_luid)
