@@ -948,7 +948,7 @@ def tcm_login(tcm_uri, pat_token):
         print(f"DEBUG: Exception during TCM login: {tb}")
         return {'success': False, 'error': f"Error during TCM login: {str(e)}", 'traceback': tb}
 
-def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start_time, end_time, max_pages=10):
+def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start_time, end_time, event_type=None, max_pages=50):
     """Get list of activity log file paths - Step 1: GET request with pagination support."""
     all_file_paths = []
     page_token = None
@@ -967,7 +967,6 @@ def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start
             if page_count > max_pages:
                 print(f"WARNING: Reached max pages limit ({max_pages}), stopping pagination")
                 print(f"WARNING: Collected {len(all_file_paths)} file paths so far")
-                print(f"WARNING: Use a shorter date range to get complete results")
                 # Mark as partial and return what we have
                 return {
                     'success': True,
@@ -982,6 +981,11 @@ def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start
             encoded_start = quote(start_time, safe='')
             encoded_end = quote(end_time, safe='')
             url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/sites/{site_id}/activitylog?startTime={encoded_start}&endTime={encoded_end}"
+            
+            # Add eventType filter if specified
+            if event_type:
+                url += f"&eventType={event_type}"
+            
             if page_token:
                 # Don't encode pageToken - it's base64 and should be passed as-is
                 url += f"&pageToken={page_token}"
@@ -2664,12 +2668,8 @@ def tcm_activity_logs():
         tcm_uri = data.get('tcm_uri', '').rstrip('/')
         pat_token = data.get('pat_token', '').strip()
         site_luid = data.get('site_luid', '').strip()
-        days_back = int(data.get('days_back', 7))
-        
-        # TCM API only allows 7 days max
-        if days_back > 7:
-            days_back = 7
-            results.append({'success': True, 'message': '⚠️  Note: TCM API limit is 7 days, adjusting request'})
+        days_back = int(data.get('days_back', 14))
+        event_type = 'metric_subscription_change'  # Hardcoded filter
         
         # Validate required fields
         if not all([tcm_uri, pat_token, site_luid]):
@@ -2680,21 +2680,8 @@ def tcm_activity_logs():
         
         results.append({'success': True, 'message': f'🚀 Starting Tableau Cloud Manager activity log retrieval...'})
         results.append({'success': True, 'message': f'📊 Site LUID: {site_luid}'})
-        results.append({'success': True, 'message': f'📅 Fetching logs for last {days_back} days'})
-        
-        # Calculate date range
-        end_time = datetime.utcnow()
-        start_time = end_time - timedelta(days=days_back)
-        
-        start_time_str = start_time.strftime('%Y-%m-%dT%H:%M:%S')
-        end_time_str = end_time.strftime('%Y-%m-%dT%H:%M:%S')
-        
-        print(f"DEBUG: Calculated date range:")
-        print(f"DEBUG:   Start: {start_time_str}")
-        print(f"DEBUG:   End: {end_time_str}")
-        print(f"DEBUG:   Days back: {days_back}")
-        
-        results.append({'success': True, 'message': f'📅 Date range: {start_time_str} to {end_time_str}'})
+        results.append({'success': True, 'message': f'📅 Fetching metric_subscription_change logs for last {days_back} days'})
+        results.append({'success': True, 'message': f'🔍 Event type filter: {event_type}'})
         
         # Step 1: Login to TCM
         results.append({'success': True, 'message': '🔐 Authenticating with Tableau Cloud Manager...'})
@@ -2713,149 +2700,166 @@ def tcm_activity_logs():
         
         results.append({'success': True, 'message': f'✅ Authentication successful! Tenant ID: {tenant_id}'})
         
-        # Step 2: Get list of log file paths (GET request)
-        results.append({'success': True, 'message': '📂 Retrieving activity log file paths...'})
+        # Step 2: Split into 7-day chunks (TCM API limit)
+        end_time = datetime.utcnow()
         
-        paths_result = tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_luid, start_time_str, end_time_str)
+        # Calculate date ranges - split 14 days into two 7-day chunks
+        date_ranges = []
+        remaining_days = days_back
+        current_end = end_time
         
-        if not paths_result['success']:
-            return jsonify({
-                'success': False,
-                'error': f"Failed to get file paths: {paths_result['error']}",
-                'response': paths_result.get('response', '')
+        while remaining_days > 0:
+            chunk_days = min(remaining_days, 7)
+            chunk_start = current_end - timedelta(days=chunk_days)
+            date_ranges.append({
+                'start': chunk_start.strftime('%Y-%m-%dT%H:%M:%S'),
+                'end': current_end.strftime('%Y-%m-%dT%H:%M:%S'),
+                'days': chunk_days
             })
+            current_end = chunk_start
+            remaining_days -= chunk_days
         
-        file_paths = paths_result['file_paths']
-        page_count = paths_result.get('page_count', 1)
-        is_partial = paths_result.get('partial', False)
-        hit_limit = paths_result.get('hit_limit', False)
+        results.append({'success': True, 'message': f'📅 Split into {len(date_ranges)} date range(s) (7-day API limit)'})
         
-        if is_partial:
-            if hit_limit:
-                results.append({'success': True, 'message': f'⚠️  Partial results: Found {len(file_paths)} log file path(s) across {page_count} page(s)'})
-                results.append({'success': True, 'message': f'ℹ️  Stopped at page limit to prevent timeout'})
-                results.append({'success': True, 'message': f'💡 Use a shorter date range (2-3 days) to get more files'})
-            else:
-                results.append({'success': True, 'message': f'⚠️  Partial results: Found {len(file_paths)} log file path(s) across {page_count} page(s) (request timed out)'})
-                results.append({'success': True, 'message': f'💡 Use a shorter date range for complete results'})
-        else:
-            results.append({'success': True, 'message': f'✅ Found {len(file_paths)} log file path(s) across {page_count} page(s)'})
+        # Step 3: Fetch file paths from all date ranges
+        all_file_paths = []
         
-        if not file_paths:
-            results.append({'success': True, 'message': '⚠️  No log files found for the specified date range'})
-            results.append({'success': True, 'message': 'ℹ️  This could mean there was no activity during this period'})
+        for i, date_range in enumerate(date_ranges, 1):
+            results.append({'success': True, 'message': f'📂 Range {i}/{len(date_ranges)}: {date_range["start"]} to {date_range["end"]}'})
+            
+            paths_result = tcm_get_activity_log_paths(
+                tcm_uri, session_token, tenant_id, site_luid, 
+                date_range['start'], date_range['end'], 
+                event_type=event_type
+            )
+            
+            if not paths_result['success']:
+                results.append({'success': False, 'message': f'  ❌ Failed: {paths_result["error"]}'})
+                continue
+            
+            range_file_paths = paths_result['file_paths']
+            all_file_paths.extend(range_file_paths)
+            results.append({'success': True, 'message': f'  ✅ Found {len(range_file_paths)} file(s)'})
+        
+        if not all_file_paths:
+            results.append({'success': True, 'message': '⚠️  No metric_subscription_change logs found for the specified date range'})
             
             return jsonify({
                 'success': True,
                 'results': results,
-                'summary': 'No activity log paths found for the specified date range',
+                'summary': 'No metric_subscription_change logs found',
                 'file_count': 0
             })
         
-        # Save file paths to JSON file
-        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
-        output_filename = f"tcm_activity_log_paths_{site_luid}_{timestamp}.json"
-        output_path = os.path.join(os.path.dirname(__file__), output_filename)
+        results.append({'success': True, 'message': f'\n✅ Total files to download: {len(all_file_paths)}'})
         
-        # Organize data by event type for easy analysis
-        files_by_event_type = {}
-        for file_path_obj in file_paths:
-            # Extract path string if it's a dict
-            if isinstance(file_path_obj, dict):
-                path = file_path_obj.get('path', '')
-                size = file_path_obj.get('size', 0)
-            else:
-                path = file_path_obj
-                size = 0
-            
-            # Extract event type from path
-            if '/eventType=' in path:
-                event_type = path.split('/eventType=')[1].split('/')[0]
-            else:
-                event_type = 'unknown'
-            
-            if event_type not in files_by_event_type:
-                files_by_event_type[event_type] = []
-            
-            files_by_event_type[event_type].append({
-                'path': path,
-                'size': size
+        # Step 4: Get download URLs (POST request)
+        results.append({'success': True, 'message': f'🔗 Getting download URLs for {len(all_file_paths)} file(s)...'})
+        
+        urls_result = tcm_get_download_urls(tcm_uri, session_token, tenant_id, site_luid, all_file_paths)
+        
+        if not urls_result['success']:
+            return jsonify({
+                'success': False,
+                'error': f"Failed to get download URLs: {urls_result['error']}",
+                'response': urls_result.get('response', '')
             })
         
-        # Create summary data
-        output_data = {
-            'metadata': {
-                'site_luid': site_luid,
-                'start_time': start_time_str,
-                'end_time': end_time_str,
-                'days_back': days_back,
-                'total_files': len(file_paths),
-                'page_count': page_count,
-                'is_partial': is_partial,
-                'hit_page_limit': hit_limit,
-                'generated_at': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S') + ' UTC',
-                'note': 'Partial results - use shorter date range for complete data' if is_partial else 'Complete results'
-            },
-            'event_type_summary': {
-                event_type: len(files) 
-                for event_type, files in sorted(files_by_event_type.items())
-            },
-            'files_by_event_type': {
-                event_type: files 
-                for event_type, files in sorted(files_by_event_type.items())
-            },
-            'all_files': file_paths
-        }
+        # The response has a 'files' array, each with its own 'url'
+        response_data = urls_result['data']
+        files_with_urls = response_data.get('files', [])
+        
+        if not files_with_urls:
+            return jsonify({
+                'success': False,
+                'error': 'No files with download URLs found in response',
+                'response': json.dumps(response_data)
+            })
+        
+        results.append({'success': True, 'message': f'✅ Got download URLs for {len(files_with_urls)} file(s)'})
+        
+        # Step 5: Download each log file
+        results.append({'success': True, 'message': f'⬇️  Downloading {len(files_with_urls)} log file(s)...'})
+        
+        all_logs = []
+        downloaded_count = 0
+        failed_count = 0
+        
+        for i, file_obj in enumerate(files_with_urls, 1):
+            download_url = file_obj.get('url')
+            file_path = file_obj.get('path', f'file_{i}')
+            
+            if not download_url:
+                results.append({'success': False, 'message': f'  ⚠️  File {i}: No download URL'})
+                failed_count += 1
+                continue
+            
+            if i % 10 == 0:
+                results.append({'success': True, 'message': f'  [{i}/{len(files_with_urls)}] Downloading...'})
+            
+            download_result = tcm_download_log_file(download_url, session_token)
+            
+            if download_result['success']:
+                log_content = download_result['content']
+                all_logs.append(f"\n{'='*80}\n")
+                all_logs.append(f"LOG FILE: {file_path}\n")
+                all_logs.append(f"{'='*80}\n")
+                all_logs.append(log_content)
+                all_logs.append("\n")
+                
+                downloaded_count += 1
+            else:
+                failed_count += 1
+                if failed_count <= 5:  # Only show first 5 failures
+                    results.append({'success': False, 'message': f'  ❌ File {i} failed: {download_result["error"]}'})
+        
+        # Combine all logs
+        combined_logs = ''.join(all_logs)
+        results.append({'success': True, 'message': f'✅ Downloaded {downloaded_count}/{len(files_with_urls)} log file(s)'})
+        
+        # Step 6: Save to local file
+        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        output_filename = f"tcm_metric_subscription_logs_{site_luid}_{timestamp}.txt"
+        output_path = os.path.join(os.path.dirname(__file__), output_filename)
         
         try:
             with open(output_path, 'w', encoding='utf-8') as f:
-                json.dump(output_data, f, indent=2)
+                f.write(f"TABLEAU CLOUD MANAGER - METRIC SUBSCRIPTION CHANGE LOGS\n")
+                f.write(f"Site LUID: {site_luid}\n")
+                f.write(f"Days back: {days_back}\n")
+                f.write(f"Event type: {event_type}\n")
+                f.write(f"Total Files Downloaded: {downloaded_count}\n")
+                f.write(f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC\n")
+                f.write("="*80 + "\n\n")
+                f.write(combined_logs)
             
-            results.append({'success': True, 'message': f'💾 Saved file paths to: {output_filename}'})
+            results.append({'success': True, 'message': f'💾 Saved to file: {output_filename}'})
             results.append({'success': True, 'message': f'📁 Full path: {output_path}'})
-            print(f"\n✅ Activity log paths saved to: {output_path}\n")
-            
-            # Print summary to console
-            print(f"\n{'='*80}")
-            print(f"ACTIVITY LOG FILE PATHS SUMMARY")
-            print(f"{'='*80}")
-            print(f"Total files: {len(file_paths)}")
-            print(f"Event types found: {len(files_by_event_type)}")
-            print(f"\nFiles by event type:")
-            for event_type, files in sorted(files_by_event_type.items(), key=lambda x: -len(x[1])):
-                print(f"  {event_type}: {len(files)} file(s)")
-            print(f"{'='*80}\n")
-            
+            print(f"\n✅ Metric subscription logs saved to: {output_path}\n")
         except Exception as e:
             results.append({'success': False, 'message': f'⚠️  Failed to save file: {str(e)}'})
             print(f"ERROR saving file: {str(e)}")
-            return jsonify({
-                'success': False,
-                'error': f"Failed to save file paths: {str(e)}"
-            })
         
         # Summary
         results.append({'success': True, 'message': '\n📊 SUMMARY'})
         results.append({'success': True, 'message': '=' * 60})
-        results.append({'success': True, 'message': f'📁 Total file paths: {len(file_paths)}'})
-        results.append({'success': True, 'message': f'📄 Pages retrieved: {page_count}{" (partial)" if is_partial else ""}'})
-        results.append({'success': True, 'message': f'🏷️  Event types: {len(files_by_event_type)}'})
-        results.append({'success': True, 'message': f'📅 Date range: {start_time_str} to {end_time_str}'})
-        if is_partial:
-            results.append({'success': True, 'message': f'⚠️  Note: Results are incomplete - reduce date range for more'})
+        results.append({'success': True, 'message': f'✅ Successfully downloaded: {downloaded_count} file(s)'})
+        if failed_count > 0:
+            results.append({'success': True, 'message': f'❌ Failed: {failed_count} file(s)'})
+        results.append({'success': True, 'message': f'📊 Total log size: {len(combined_logs):,} characters'})
+        results.append({'success': True, 'message': f'📅 Days covered: {days_back}'})
+        results.append({'success': True, 'message': f'🔍 Event type: {event_type}'})
         
-        # Show top event types
-        results.append({'success': True, 'message': '\n🏷️  TOP EVENT TYPES:'})
-        for event_type, files in sorted(files_by_event_type.items(), key=lambda x: -len(x[1]))[:10]:
-            results.append({'success': True, 'message': f'  • {event_type}: {len(files)} file(s)'})
+        summary = f"Successfully downloaded {downloaded_count} metric_subscription_change log file(s)"
+        if failed_count > 0:
+            summary += f", {failed_count} failed"
         
         return jsonify({
             'success': True,
             'results': results,
-            'summary': f"Found {len(file_paths)} activity log files across {len(files_by_event_type)} event types",
-            'file_count': len(file_paths),
-            'event_types': list(files_by_event_type.keys()),
-            'event_type_counts': output_data['event_type_summary'],
+            'summary': summary,
+            'log_count': downloaded_count,
+            'failed_count': failed_count,
             'output_file': output_filename
         })
         
