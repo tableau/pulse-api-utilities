@@ -2668,6 +2668,13 @@ def tcm_activity_logs():
         tcm_uri = data.get('tcm_uri', '').rstrip('/')
         pat_token = data.get('pat_token', '').strip()
         site_luid = data.get('site_luid', '').strip()
+        
+        # Tableau credentials for Pulse API lookups
+        tableau_server = data.get('tableau_server', '').rstrip('/')
+        tableau_site_id = data.get('tableau_site_id', '').strip()
+        tableau_pat_name = data.get('tableau_pat_name', '').strip()
+        tableau_pat_token = data.get('tableau_pat_token', '').strip()
+        
         event_type = 'metric_subscription_change'  # Hardcoded filter
         
         # Hardcoded date range: October 1-14, 2025
@@ -2675,10 +2682,10 @@ def tcm_activity_logs():
         target_end_date = datetime(2025, 10, 14, 23, 59, 59)
         
         # Validate required fields
-        if not all([tcm_uri, pat_token, site_luid]):
+        if not all([tcm_uri, pat_token, site_luid, tableau_server, tableau_site_id, tableau_pat_name, tableau_pat_token]):
             return jsonify({
                 'success': False,
-                'error': 'Missing required fields: tcm_uri, pat_token, and site_luid are required'
+                'error': 'Missing required fields: all TCM and Tableau credentials are required'
             })
         
         results.append({'success': True, 'message': f'🚀 Starting Tableau Cloud Manager activity log retrieval...'})
@@ -2877,28 +2884,124 @@ def tcm_activity_logs():
         results.append({'success': True, 'message': f'  Unique users: {len(user_luids)}'})
         results.append({'success': True, 'message': f'  Unique metrics: {len(metric_ids)}'})
         
-        # Step 7: Look up user names and metric details using Pulse APIs
-        results.append({'success': True, 'message': '\n🔍 Looking up user and metric details...'})
+        # Step 7: Authenticate with Tableau and look up names
+        results.append({'success': True, 'message': '\n🔍 Authenticating with Tableau for name lookups...'})
         
-        # Need to authenticate with Tableau to use Pulse APIs
-        # Extract connection details from TCM URI (assume same server)
-        tableau_server = tcm_uri.replace('cloudmanager.', '')  # Convert TCM URI to Tableau URI
+        # Authenticate with PAT
+        api_version = '3.19'  # Use current API version
+        tableau_auth = authenticate_tableau_rest(
+            tableau_server, api_version, tableau_site_id, 'pat',
+            pat_name=tableau_pat_name, pat_token=tableau_pat_token
+        )
         
-        # For now, we'll create the reports with IDs and note that manual lookup is needed
-        # (We'd need separate Tableau credentials to look up via Pulse API)
+        if not tableau_auth['success']:
+            results.append({'success': False, 'message': f'  ⚠️  Tableau auth failed: {tableau_auth["error"]}'})
+            results.append({'success': True, 'message': '  ℹ️  Continuing with IDs only...'})
+            user_name_map = {}
+            metric_name_map = {}
+        else:
+            auth_token = tableau_auth['auth_token']
+            site_id_returned = tableau_auth['site_id']
+            
+            results.append({'success': True, 'message': f'  ✅ Tableau authentication successful'})
+            
+            # Get all users to build LUID -> username map
+            results.append({'success': True, 'message': '  📋 Fetching users...'})
+            try:
+                users_url = f"{tableau_server}/api/{api_version}/sites/{site_id_returned}/users?pageSize=1000"
+                users_response = requests.get(users_url, headers={'X-Tableau-Auth': auth_token}, verify=True, timeout=30)
+                
+                user_name_map = {}
+                if users_response.status_code == 200:
+                    users_data = ET.fromstring(users_response.content)
+                    for user in users_data.findall('.//t:user', {'t': 'http://tableau.com/api'}):
+                        user_luid = user.get('id')
+                        username = user.get('name')
+                        if user_luid and username:
+                            user_name_map[user_luid] = username
+                    results.append({'success': True, 'message': f'  ✅ Found {len(user_name_map)} users'})
+                else:
+                    results.append({'success': False, 'message': f'  ⚠️  Failed to fetch users: {users_response.status_code}'})
+                    user_name_map = {}
+            except Exception as e:
+                results.append({'success': False, 'message': f'  ⚠️  Error fetching users: {str(e)}'})
+                user_name_map = {}
+            
+            # Get all metric definitions to build metric_id -> name map
+            results.append({'success': True, 'message': '  📊 Fetching metric definitions...'})
+            try:
+                definitions_url = f"{tableau_server}/api/-/pulse/definitions?page_size=1000"
+                definitions_response = requests.get(definitions_url, headers={'X-Tableau-Auth': auth_token}, verify=True, timeout=30)
+                
+                metric_name_map = {}
+                if definitions_response.status_code == 200:
+                    definitions_data = definitions_response.json()
+                    definitions = definitions_data.get('metric_definitions', [])
+                    
+                    # Need to get all metrics for each definition
+                    # For now, use definition names as metric names
+                    for definition in definitions:
+                        definition_id = definition.get('metadata', {}).get('id')
+                        definition_name = definition.get('metadata', {}).get('name')
+                        
+                        # Get metrics for this definition
+                        # Note: We're mapping metric IDs to their definition names
+                        # (In reality, metrics under same definition share the name)
+                        for metric_id in metric_ids:
+                            # This is a simplified approach - we'd need to call get metric details
+                            # for each unique metric_id to get its definition_id
+                            pass
+                    
+                    # Alternative: Get metric details for each unique metric_id
+                    for metric_id in metric_ids:
+                        try:
+                            metric_url = f"{tableau_server}/api/-/pulse/metrics/{metric_id}"
+                            metric_response = requests.get(metric_url, headers={'X-Tableau-Auth': auth_token}, verify=True, timeout=10)
+                            
+                            if metric_response.status_code == 200:
+                                metric_data = metric_response.json()
+                                def_id = metric_data.get('definition_id') or metric_data.get('metadata', {}).get('definition_id')
+                                
+                                # Find the definition name
+                                for definition in definitions:
+                                    if definition.get('metadata', {}).get('id') == def_id:
+                                        metric_name = definition.get('metadata', {}).get('name', 'Unknown')
+                                        # Check if it's a scoped metric
+                                        filters = metric_data.get('specification', {}).get('filters', [])
+                                        if filters:
+                                            metric_name += ' (Scoped)'
+                                        metric_name_map[metric_id] = metric_name
+                                        break
+                        except Exception:
+                            continue
+                    
+                    results.append({'success': True, 'message': f'  ✅ Mapped {len(metric_name_map)}/{len(metric_ids)} metrics'})
+                else:
+                    results.append({'success': False, 'message': f'  ⚠️  Failed to fetch definitions: {definitions_response.status_code}'})
+                    metric_name_map = {}
+            except Exception as e:
+                results.append({'success': False, 'message': f'  ⚠️  Error fetching metrics: {str(e)}'})
+                metric_name_map = {}
+        
+        # Step 8: Create enriched reports
+        results.append({'success': True, 'message': '\n📊 Generating enriched reports...'})
         
         user_report = []
         for user_luid, metrics in sorted(user_metrics.items(), key=lambda x: -len(x[1])):
+            username = user_name_map.get(user_luid, user_luid)
             user_report.append({
                 'user_luid': user_luid,
+                'username': username,
                 'metrics_following': len(metrics),
                 'metric_ids': list(metrics)
             })
         
         metric_report = []
         for metric_id, followers in sorted(metric_followers.items(), key=lambda x: -len(x[1])):
+            metric_name = metric_name_map.get(metric_id, metric_id)
             metric_report.append({
                 'metric_id': metric_id,
+                'metric_name': metric_name,
                 'follower_count': len(followers),
                 'follower_luids': list(followers)
             })
@@ -2906,7 +3009,7 @@ def tcm_activity_logs():
         results.append({'success': True, 'message': f'  ✅ Generated user report ({len(user_report)} users)'})
         results.append({'success': True, 'message': f'  ✅ Generated metric report ({len(metric_report)} metrics)'})
         
-        # Step 8: Save analysis reports
+        # Step 9: Save enriched analysis reports
         timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
         
         # Save user report
@@ -2916,12 +3019,12 @@ def tcm_activity_logs():
         try:
             with open(user_report_path, 'w', encoding='utf-8', newline='') as f:
                 writer = csv.writer(f)
-                writer.writerow(['User LUID', 'Metrics Following', 'Metric IDs'])
+                writer.writerow(['User LUID', 'Username', 'Metrics Following'])
                 for row in user_report:
                     writer.writerow([
                         row['user_luid'],
-                        row['metrics_following'],
-                        '; '.join(row['metric_ids'][:10]) + ('...' if len(row['metric_ids']) > 10 else '')
+                        row['username'],
+                        row['metrics_following']
                     ])
             results.append({'success': True, 'message': f'💾 User report saved: {user_report_filename}'})
         except Exception as e:
@@ -2934,19 +3037,18 @@ def tcm_activity_logs():
         try:
             with open(metric_report_path, 'w', encoding='utf-8', newline='') as f:
                 writer = csv.writer(f)
-                writer.writerow(['Metric ID', 'Follower Count', 'Follower LUIDs'])
+                writer.writerow(['Metric ID', 'Metric Name', 'Follower Count'])
                 for row in metric_report:
                     writer.writerow([
                         row['metric_id'],
-                        row['follower_count'],
-                        '; '.join(row['follower_luids'][:10]) + ('...' if len(row['follower_luids']) > 10 else '')
+                        row['metric_name'],
+                        row['follower_count']
                     ])
             results.append({'success': True, 'message': f'💾 Metric report saved: {metric_report_filename}'})
         except Exception as e:
             results.append({'success': False, 'message': f'❌ Failed to save metric report: {str(e)}'})
         
-        # Step 9: Save combined logs to text file
-        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        # Step 10: Save combined logs to text file  
         output_filename = f"tcm_metric_subscription_logs_Oct1-14-2025_{site_luid}_{timestamp}.txt"
         output_path = os.path.join(os.path.dirname(__file__), output_filename)
         

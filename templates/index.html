@@ -1261,6 +1261,27 @@
                     </div>
                 </div>
 
+                <!-- Tableau PAT for Pulse API Lookups -->
+                <div class="form-section">
+                    <h3>🔐 Tableau Site Credentials (for name lookups)</h3>
+                    <div class="form-row">
+                        <input type="url" id="tcm_tableau_server" name="tableau_server" placeholder="Tableau Server URL (e.g., https://prod-uswest-c.online.tableau.com)" required>
+                        <small>💡 Your Tableau Cloud instance URL (not TCM)</small>
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="tcm_tableau_site_id" name="tableau_site_id" placeholder="Site ID/Content URL (e.g., mysite)" required>
+                        <small>💡 Your Tableau site's content URL</small>
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="tcm_tableau_pat_name" name="tableau_pat_name" placeholder="Tableau PAT Name" required>
+                        <small>💡 Personal Access Token name for Tableau API</small>
+                    </div>
+                    <div class="form-row">
+                        <input type="password" id="tcm_tableau_pat_token" name="tableau_pat_token" placeholder="Tableau PAT Token" required>
+                        <small>💡 Personal Access Token secret for Tableau API</small>
+                    </div>
+                </div>
+
                 <div class="form-actions">
                     <button type="submit" class="button">📋 Fetch Activity Logs</button>
                     <button type="button" class="button secondary" onclick="showTab('home')">← Back to Home</button>
