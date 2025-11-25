@@ -949,22 +949,23 @@ def tcm_login(tcm_uri, pat_token):
 
 def tcm_request_activity_logs(tcm_uri, session_token, tenant_id, site_id, start_time, end_time):
     """Request activity log generation for a specific time range."""
-    url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/sites/{site_id}/activitylog"
+    # Use query parameters, not POST body
+    url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/sites/{site_id}/activitylog?startTime={start_time}&endTime={end_time}"
     
     headers = {
-        'Authorization': f'Bearer {session_token}',
-        'Content-Type': 'application/json',
+        'x-tableau-session-token': session_token,
         'Accept': 'application/json'
     }
     
-    payload = {
-        'startTime': start_time,
-        'endTime': end_time
-    }
-    
     try:
-        # POST to request log generation
-        response = requests.post(url, headers=headers, json=payload, verify=True)
+        print(f"DEBUG: Requesting activity logs from: {url}")
+        print(f"DEBUG: Headers: {{'x-tableau-session-token': '***REDACTED***', 'Accept': 'application/json'}}")
+        
+        # GET request with query parameters
+        response = requests.get(url, headers=headers, verify=True)
+        
+        print(f"DEBUG: Activity log request response status: {response.status_code}")
+        print(f"DEBUG: Activity log request response: {response.text}")
         
         if response.status_code in [200, 201, 202]:
             return {'success': True, 'data': response.json()}
@@ -975,6 +976,8 @@ def tcm_request_activity_logs(tcm_uri, session_token, tenant_id, site_id, start_
                 'response': response.text
             }
     except Exception as e:
+        tb = traceback.format_exc()
+        print(f"DEBUG: Exception requesting activity logs: {tb}")
         return {'success': False, 'error': f"Error requesting activity logs: {str(e)}"}
 
 def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start_time, end_time):
@@ -982,7 +985,7 @@ def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start
     url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/sites/{site_id}/activitylog?startTime={start_time}&endTime={end_time}"
     
     headers = {
-        'Authorization': f'Bearer {session_token}',
+        'x-tableau-session-token': session_token,
         'Accept': 'application/json'
     }
     
@@ -1017,7 +1020,7 @@ def tcm_download_log_file(tcm_uri, session_token, file_path):
         url = f"{tcm_uri}{file_path}"
     
     headers = {
-        'Authorization': f'Bearer {session_token}'
+        'x-tableau-session-token': session_token
     }
     
     try:
