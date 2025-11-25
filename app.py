@@ -2907,16 +2907,12 @@ def tcm_activity_logs():
         metric_followers = {}  # metric_id -> set of user_luids following it
         
         for event in subscription_events:
-            # Try different possible field names
-            actor_luid = event.get('actorLuid') or event.get('actor_luid') or event.get('userLuid') or event.get('user_luid')
-            metric_id = event.get('metricId') or event.get('metric_id')
-            event_action = event.get('action', '') or event.get('eventType', '') or event.get('event_type', '')
-            event_action = event_action.lower()
+            # Extract fields from TCM activity log format
+            actor_luid = event.get('actorUserLuid')
+            metric_id = event.get('scopedMetricId')
+            operation = event.get('subscriptionOperation', '')
             
             if not actor_luid or not metric_id:
-                # Debug first few failures
-                if len(user_luids) == 0 and len([e for e in subscription_events if subscription_events.index(e) < 3]) <= 3:
-                    print(f"DEBUG: Skipping event (missing fields): {json.dumps(event, indent=2)[:300]}")
                 continue
             
             user_luids.add(actor_luid)
@@ -2928,11 +2924,13 @@ def tcm_activity_logs():
             if metric_id not in metric_followers:
                 metric_followers[metric_id] = set()
             
-            # Track subscription state (add/remove)
-            if 'subscribe' in event_action or 'add' in event_action:
+            # Track subscription state based on operation
+            # FOLLOW_OPERATION_FOLLOW = subscribe
+            # FOLLOW_OPERATION_UNFOLLOW = unsubscribe
+            if 'FOLLOW' in operation and 'UNFOLLOW' not in operation:
                 user_metrics[actor_luid].add(metric_id)
                 metric_followers[metric_id].add(actor_luid)
-            elif 'unsubscribe' in event_action or 'remove' in event_action:
+            elif 'UNFOLLOW' in operation:
                 user_metrics[actor_luid].discard(metric_id)
                 metric_followers[metric_id].discard(actor_luid)
         
@@ -3065,7 +3063,7 @@ def tcm_activity_logs():
         results.append({'success': True, 'message': f'  ✅ Generated metric report ({len(metric_report)} metrics)'})
         
         # Step 9: Save enriched analysis reports
-        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         
         # Save user report
         user_report_filename = f"tcm_user_subscriptions_Oct1-14-2025_{site_luid}_{timestamp}.csv"
@@ -3114,7 +3112,7 @@ def tcm_activity_logs():
                 f.write(f"Date Range: October 1-14, 2025\n")
                 f.write(f"Event type: {event_type}\n")
                 f.write(f"Total Files Downloaded: {downloaded_count}\n")
-                f.write(f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC\n")
+                f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write("="*80 + "\n\n")
                 f.write(combined_logs)
             
