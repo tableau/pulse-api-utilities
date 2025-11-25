@@ -7,6 +7,7 @@ import traceback
 import copy
 import csv
 import io
+import os
 from urllib.parse import urlparse, quote
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
@@ -2759,6 +2760,28 @@ def tcm_activity_logs():
         # Combine all logs
         combined_logs = ''.join(all_logs)
         results.append({'success': True, 'message': f'✅ Downloaded {downloaded_count}/{len(files_with_urls)} log file(s)'})
+        
+        # Save to local file with timestamp
+        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        output_filename = f"tcm_activity_logs_{site_luid}_{timestamp}.txt"
+        output_path = os.path.join(os.path.dirname(__file__), output_filename)
+        
+        try:
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(f"TABLEAU CLOUD MANAGER ACTIVITY LOGS\n")
+                f.write(f"Site LUID: {site_luid}\n")
+                f.write(f"Date Range: {start_time_str} to {end_time_str}\n")
+                f.write(f"Total Files Downloaded: {downloaded_count}\n")
+                f.write(f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC\n")
+                f.write("="*80 + "\n\n")
+                f.write(combined_logs)
+            
+            results.append({'success': True, 'message': f'💾 Saved to file: {output_filename}'})
+            results.append({'success': True, 'message': f'📁 Full path: {output_path}'})
+            print(f"\n✅ Activity logs saved to: {output_path}\n")
+        except Exception as e:
+            results.append({'success': False, 'message': f'⚠️  Failed to save file: {str(e)}'})
+            print(f"ERROR saving file: {str(e)}")
         
         # Log the combined output (truncated for console)
         print(f"\n{'='*100}")
