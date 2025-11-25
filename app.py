@@ -2973,8 +2973,10 @@ def tcm_activity_logs():
                         if user_luid and username:
                             user_name_map[user_luid] = username
                     results.append({'success': True, 'message': f'  ✅ Found {len(user_name_map)} users'})
+                    print(f"DEBUG: User map sample (first 3): {list(user_name_map.items())[:3]}")
                 else:
                     results.append({'success': False, 'message': f'  ⚠️  Failed to fetch users: {users_response.status_code}'})
+                    print(f"DEBUG: Users response: {users_response.text[:500]}")
                     user_name_map = {}
             except Exception as e:
                 results.append({'success': False, 'message': f'  ⚠️  Error fetching users: {str(e)}'})
@@ -3029,8 +3031,11 @@ def tcm_activity_logs():
                             continue
                     
                     results.append({'success': True, 'message': f'  ✅ Mapped {len(metric_name_map)}/{len(metric_ids)} metrics'})
+                    print(f"DEBUG: Metric map sample (first 3): {list(metric_name_map.items())[:3]}")
+                    print(f"DEBUG: Sample metric IDs from logs: {list(metric_ids)[:3]}")
                 else:
                     results.append({'success': False, 'message': f'  ⚠️  Failed to fetch definitions: {definitions_response.status_code}'})
+                    print(f"DEBUG: Definitions response: {definitions_response.text[:500]}")
                     metric_name_map = {}
             except Exception as e:
                 results.append({'success': False, 'message': f'  ⚠️  Error fetching metrics: {str(e)}'})
@@ -3039,9 +3044,16 @@ def tcm_activity_logs():
         # Step 8: Create enriched reports
         results.append({'success': True, 'message': '\n📊 Generating enriched reports...'})
         
+        print(f"\nDEBUG: Creating reports...")
+        print(f"DEBUG: User name map has {len(user_name_map)} entries")
+        print(f"DEBUG: Metric name map has {len(metric_name_map)} entries")
+        print(f"DEBUG: Processing {len(user_metrics)} users and {len(metric_followers)} metrics")
+        
         user_report = []
         for user_luid, metrics in sorted(user_metrics.items(), key=lambda x: -len(x[1])):
             username = user_name_map.get(user_luid, user_luid)
+            if username == user_luid and len(user_report) < 3:
+                print(f"DEBUG: No username found for LUID: {user_luid}")
             user_report.append({
                 'user_luid': user_luid,
                 'username': username,
@@ -3052,6 +3064,8 @@ def tcm_activity_logs():
         metric_report = []
         for metric_id, followers in sorted(metric_followers.items(), key=lambda x: -len(x[1])):
             metric_name = metric_name_map.get(metric_id, metric_id)
+            if metric_name == metric_id and len(metric_report) < 3:
+                print(f"DEBUG: No metric name found for ID: {metric_id}")
             metric_report.append({
                 'metric_id': metric_id,
                 'metric_name': metric_name,
