@@ -1529,6 +1529,8 @@
 
         // Show TCM results with tables
         function showTCMResults(result, completionMessage = '✅ Analysis completed!') {
+            console.log('showTCMResults called with:', result);
+            
             const progressDiv = document.getElementById('progress');
             const resultsDiv = document.getElementById('copyResults');
             
@@ -2049,6 +2051,10 @@
                 });
 
                 const result = await response.json();
+                
+                console.log('TCM Result:', result);
+                console.log('User table:', result.user_table);
+                console.log('Metric table:', result.metric_table);
                 
                 if (result.success) {
                     showTCMResults(result, '✅ Activity logs analyzed successfully!');
