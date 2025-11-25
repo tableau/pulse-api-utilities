@@ -904,12 +904,12 @@ def tcm_login(tcm_uri, pat_token):
     }
     
     payload = {
-        'pat': pat_token
+        'token': pat_token
     }
     
     try:
         print(f"DEBUG: Attempting TCM login to: {url}")
-        print(f"DEBUG: Payload: {json.dumps({'pat': '***REDACTED***'})}")
+        print(f"DEBUG: Payload: {json.dumps({'token': '***REDACTED***'})}")
         
         response = requests.post(url, headers=headers, json=payload, verify=True)
         
