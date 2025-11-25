@@ -982,17 +982,16 @@ def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start
             encoded_end = quote(end_time, safe='')
             url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/sites/{site_id}/activitylog?startTime={encoded_start}&endTime={encoded_end}"
             
-            # Add eventType filter if specified
-            if event_type:
-                url += f"&eventType={event_type}"
+            # Note: eventType filter will be applied client-side after getting results
+            # The API may not support server-side filtering
             
             if page_token:
                 # Don't encode pageToken - it's base64 and should be passed as-is
                 url += f"&pageToken={page_token}"
             
-            print(f"DEBUG: Getting activity log paths (page {page_count}): {url}")
-            print(f"DEBUG: Request headers: {{'x-tableau-session-token': '***REDACTED***', 'Accept': 'application/json'}}")
-            print(f"DEBUG: Session token length: {len(session_token) if session_token else 0}")
+            print(f"DEBUG: Getting activity log paths (page {page_count})")
+            print(f"DEBUG: URL: {url}")
+            print(f"DEBUG: Filtering for event_type: {event_type if event_type else 'None (all events)'}")
             
             # Add timeout to prevent hanging
             response = requests.get(url, headers=headers, verify=True, timeout=30)
@@ -1025,11 +1024,32 @@ def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start
             # The response should contain file paths
             file_paths = response_data.get('filePaths', []) or response_data.get('files', []) or response_data.get('paths', [])
             
-            print(f"DEBUG: File paths on page {page_count}: {len(file_paths)}")
+            print(f"DEBUG: Raw file paths on page {page_count}: {len(file_paths)}")
+            
+            # Filter by event type if specified (client-side filtering)
+            if event_type and file_paths:
+                filtered_paths = []
+                for fp in file_paths:
+                    # Extract path string
+                    if isinstance(fp, dict):
+                        path = fp.get('path', '')
+                    else:
+                        path = fp
+                    
+                    # Check if path contains the event type
+                    if f'/eventType={event_type}/' in path:
+                        filtered_paths.append(fp)
+                
+                print(f"DEBUG: After filtering for '{event_type}': {len(filtered_paths)} file paths")
+                if page_count == 1 and filtered_paths:
+                    print(f"DEBUG: First filtered path: {filtered_paths[0]}")
+                file_paths = filtered_paths
+            else:
+                print(f"DEBUG: No filtering applied")
+                if file_paths and page_count == 1:
+                    print(f"DEBUG: First file path: {file_paths[0]}")
+            
             print(f"DEBUG: Total collected so far: {len(all_file_paths) + len(file_paths)}")
-            if file_paths and page_count == 1:
-                print(f"DEBUG: First file path type: {type(file_paths[0])}")
-                print(f"DEBUG: First file path: {file_paths[0]}")
             
             all_file_paths.extend(file_paths)
             
@@ -2728,6 +2748,10 @@ def tcm_activity_logs():
         
         results.append({'success': True, 'message': f'📅 Split into {len(date_ranges)} date range(s) (7-day API limit)'})
         
+        print(f"\nDEBUG: Starting file path collection")
+        print(f"DEBUG: Event type filter: {event_type}")
+        print(f"DEBUG: Number of date ranges: {len(date_ranges)}")
+        
         # Step 3: Fetch file paths from all date ranges
         all_file_paths = []
         
@@ -2746,15 +2770,28 @@ def tcm_activity_logs():
             
             range_file_paths = paths_result['file_paths']
             all_file_paths.extend(range_file_paths)
-            results.append({'success': True, 'message': f'  ✅ Found {len(range_file_paths)} file(s)'})
+            results.append({'success': True, 'message': f'  ✅ Found {len(range_file_paths)} file(s) for this range'})
+        
+        print(f"\nDEBUG: Total file paths collected across all ranges: {len(all_file_paths)}")
+        if all_file_paths:
+            print(f"DEBUG: Sample file paths:")
+            for fp in all_file_paths[:3]:
+                if isinstance(fp, dict):
+                    print(f"  - {fp.get('path', fp)}")
+                else:
+                    print(f"  - {fp}")
         
         if not all_file_paths:
-            results.append({'success': True, 'message': '⚠️  No metric_subscription_change logs found for the specified date range'})
+            results.append({'success': True, 'message': f'⚠️  No logs found with eventType={event_type} for Oct 1-14, 2025'})
+            results.append({'success': True, 'message': 'ℹ️  This might mean:'})
+            results.append({'success': True, 'message': '  • No metric subscription changes occurred in this period'})
+            results.append({'success': True, 'message': '  • The site LUID is incorrect'})
+            results.append({'success': True, 'message': '  • The eventType filter needs adjustment'})
             
             return jsonify({
                 'success': True,
                 'results': results,
-                'summary': 'No metric_subscription_change logs found',
+                'summary': f'No {event_type} logs found for Oct 1-14, 2025',
                 'file_count': 0
             })
         
