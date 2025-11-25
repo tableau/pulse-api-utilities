@@ -1086,14 +1086,12 @@ def tcm_get_download_urls(tcm_uri, session_token, tenant_id, site_id, file_paths
         print(f"DEBUG: Exception getting download URLs: {tb}")
         return {'success': False, 'error': f"Error getting download URLs: {str(e)}"}
 
-def tcm_download_log_file(download_url, session_token):
-    """Download a single activity log file - Step 3: Download from URL."""
-    headers = {
-        'x-tableau-session-token': session_token
-    }
-    
+def tcm_download_log_file(download_url, session_token=None):
+    """Download a single activity log file - Step 3: Download from S3 pre-signed URL."""
+    # S3 pre-signed URLs don't need authentication headers
     try:
-        response = requests.get(download_url, headers=headers, verify=True, stream=True)
+        print(f"DEBUG: Downloading from URL (first 100 chars): {download_url[:100]}...")
+        response = requests.get(download_url, verify=True, stream=True)
         
         if response.status_code == 200:
             # Return the content as text
@@ -2711,37 +2709,56 @@ def tcm_activity_logs():
                 'response': urls_result.get('response', '')
             })
         
-        # The response should have a 'url' key with the download URL
+        # The response has a 'files' array, each with its own 'url'
         response_data = urls_result['data']
-        download_url = response_data.get('url')
+        files_with_urls = response_data.get('files', [])
         
-        if not download_url:
+        if not files_with_urls:
             return jsonify({
                 'success': False,
-                'error': 'No download URL found in response',
+                'error': 'No files with download URLs found in response',
                 'response': json.dumps(response_data)
             })
         
-        results.append({'success': True, 'message': f'✅ Got download URL'})
+        results.append({'success': True, 'message': f'✅ Got download URLs for {len(files_with_urls)} file(s)'})
         
-        # Step 4: Download the combined log file
-        results.append({'success': True, 'message': f'⬇️  Downloading activity logs...'})
+        # Step 4: Download each log file
+        results.append({'success': True, 'message': f'⬇️  Downloading {len(files_with_urls)} activity log file(s)...'})
         
-        download_result = tcm_download_log_file(download_url, session_token)
-        
-        if not download_result['success']:
-            return jsonify({
-                'success': False,
-                'error': f"Failed to download logs: {download_result['error']}",
-                'response': download_result.get('response', '')
-            })
-        
-        combined_logs = download_result['content']
-        results.append({'success': True, 'message': f'✅ Successfully downloaded activity logs'})
-        
-        # Add file path information
-        downloaded_count = len(file_paths)
+        all_logs = []
+        downloaded_count = 0
         failed_count = 0
+        
+        for i, file_obj in enumerate(files_with_urls, 1):
+            download_url = file_obj.get('url')
+            file_path = file_obj.get('path', f'file_{i}')
+            
+            if not download_url:
+                results.append({'success': False, 'message': f'  ⚠️  File {i}: No download URL'})
+                failed_count += 1
+                continue
+            
+            results.append({'success': True, 'message': f'  [{i}/{len(files_with_urls)}] Downloading...'})
+            
+            download_result = tcm_download_log_file(download_url, session_token)
+            
+            if download_result['success']:
+                log_content = download_result['content']
+                all_logs.append(f"\n{'='*80}\n")
+                all_logs.append(f"LOG FILE: {file_path}\n")
+                all_logs.append(f"{'='*80}\n")
+                all_logs.append(log_content)
+                all_logs.append("\n")
+                
+                downloaded_count += 1
+                results.append({'success': True, 'message': f'  ✅ Downloaded successfully'})
+            else:
+                failed_count += 1
+                results.append({'success': False, 'message': f'  ❌ Failed: {download_result["error"]}'})
+        
+        # Combine all logs
+        combined_logs = ''.join(all_logs)
+        results.append({'success': True, 'message': f'✅ Downloaded {downloaded_count}/{len(files_with_urls)} log file(s)'})
         
         # Log the combined output (truncated for console)
         print(f"\n{'='*100}")
