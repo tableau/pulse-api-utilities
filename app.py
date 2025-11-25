@@ -2994,10 +2994,19 @@ def tcm_activity_logs():
                 metric_name_map = {}
                 if definitions_response.status_code == 200:
                     definitions_data = definitions_response.json()
-                    definitions = definitions_data.get('metric_definitions', [])
+                    print(f"DEBUG: Definitions response keys: {list(definitions_data.keys())}")
+                    
+                    # Try different possible keys
+                    definitions = (definitions_data.get('metric_definitions', []) or 
+                                 definitions_data.get('definitions', []) or
+                                 definitions_data.get('data', []))
+                    
                     print(f"DEBUG: Found {len(definitions)} definitions")
                     if definitions:
-                        print(f"DEBUG: First definition: {definitions[0].get('metadata', {})}")
+                        print(f"DEBUG: First definition keys: {list(definitions[0].keys())}")
+                        print(f"DEBUG: First definition: {definitions[0]}")
+                    else:
+                        print(f"DEBUG: Full response (first 500 chars): {str(definitions_data)[:500]}")
                     
                     # Need to get all metrics for each definition
                     # For now, use definition names as metric names
@@ -3025,29 +3034,51 @@ def tcm_activity_logs():
                                 print(f"DEBUG: Metric {i} ({metric_id}): status {metric_response.status_code}")
                             
                             if metric_response.status_code == 200:
-                                metric_data = metric_response.json()
-                                def_id = metric_data.get('definition_id') or metric_data.get('metadata', {}).get('definition_id')
+                                metric_response_data = metric_response.json()
+                                
+                                # Unwrap if data is nested under 'metric' key
+                                if 'metric' in metric_response_data and isinstance(metric_response_data['metric'], dict):
+                                    metric_data = metric_response_data['metric']
+                                else:
+                                    metric_data = metric_response_data
+                                
+                                def_id = (metric_data.get('definition_id') or 
+                                         metric_data.get('metadata', {}).get('definition_id') or
+                                         metric_data.get('definition', {}).get('id'))
                                 
                                 if i <= 3:
                                     print(f"DEBUG: Metric {i} definition_id: {def_id}")
                                     print(f"DEBUG: Metric {i} data keys: {list(metric_data.keys())}")
+                                    if 'metadata' in metric_data:
+                                        print(f"DEBUG: Metric {i} metadata: {metric_data['metadata']}")
                                 
-                                # Find the definition name
-                                for definition in definitions:
-                                    if definition.get('metadata', {}).get('id') == def_id:
-                                        metric_name = definition.get('metadata', {}).get('name', 'Unknown')
-                                        # Check if it's a scoped metric
-                                        filters = metric_data.get('specification', {}).get('filters', [])
-                                        if filters:
-                                            metric_name += ' (Scoped)'
-                                        metric_name_map[metric_id] = metric_name
-                                        success_count += 1
+                                # Try to get name directly from metric data first
+                                metric_name = (metric_data.get('metadata', {}).get('name') or
+                                             metric_data.get('name'))
+                                
+                                # If no direct name, find the definition name
+                                if not metric_name and def_id and definitions:
+                                    for definition in definitions:
+                                        def_def_id = definition.get('metadata', {}).get('id') or definition.get('id')
+                                        if def_def_id == def_id:
+                                            metric_name = definition.get('metadata', {}).get('name') or definition.get('name', 'Unknown')
+                                            break
+                                    else:
                                         if i <= 3:
-                                            print(f"DEBUG: Metric {i} mapped to: {metric_name}")
-                                        break
+                                            print(f"DEBUG: Metric {i} - definition {def_id} not found in definitions list")
+                                
+                                if metric_name:
+                                    # Check if it's a scoped metric
+                                    filters = metric_data.get('specification', {}).get('filters', [])
+                                    if filters:
+                                        metric_name += ' (Scoped)'
+                                    metric_name_map[metric_id] = metric_name
+                                    success_count += 1
+                                    if i <= 3:
+                                        print(f"DEBUG: Metric {i} mapped to: {metric_name}")
                                 else:
                                     if i <= 3:
-                                        print(f"DEBUG: Metric {i} - definition {def_id} not found in definitions list")
+                                        print(f"DEBUG: Metric {i} - could not extract name")
                             else:
                                 if i <= 3:
                                     print(f"DEBUG: Metric {i} fetch failed: {metric_response.text[:200]}")
