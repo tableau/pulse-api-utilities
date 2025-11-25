@@ -1562,15 +1562,17 @@
             }
             
             // Show User Subscriptions Table
+            console.log('Checking user_table:', result.user_table);
             if (result.user_table && result.user_table.length > 0) {
+                console.log('Rendering user table with', result.user_table.length, 'rows');
                 resultsHTML += `
-                    <div class="result-item">
-                        <h3>👥 User Subscriptions</h3>
-                        <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+                    <div class="result-item" style="margin-top: 20px;">
+                        <h3 style="margin-bottom: 10px;">👥 User Subscriptions</h3>
+                        <table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px;">
                             <thead>
                                 <tr style="background-color: #f5f5f5; border-bottom: 2px solid #ddd;">
-                                    <th style="padding: 12px; text-align: left; border: 1px solid #ddd;">Username</th>
-                                    <th style="padding: 12px; text-align: left; border: 1px solid #ddd;">Metrics Following</th>
+                                    <th style="padding: 12px; text-align: left; border: 1px solid #ddd; font-weight: 600;">Username</th>
+                                    <th style="padding: 12px; text-align: left; border: 1px solid #ddd; font-weight: 600;">Metrics Following</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1581,7 +1583,7 @@
                     resultsHTML += `
                         <tr style="background-color: ${bgColor};">
                             <td style="padding: 10px; border: 1px solid #ddd;">${row.username}</td>
-                            <td style="padding: 10px; border: 1px solid #ddd;">${row.metrics_following}</td>
+                            <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">${row.metrics_following}</td>
                         </tr>
                     `;
                 });
@@ -1591,18 +1593,22 @@
                         </table>
                     </div>
                 `;
+            } else {
+                console.log('No user table data to display');
             }
             
             // Show Metric Followers Table
+            console.log('Checking metric_table:', result.metric_table);
             if (result.metric_table && result.metric_table.length > 0) {
+                console.log('Rendering metric table with', result.metric_table.length, 'rows');
                 resultsHTML += `
-                    <div class="result-item">
-                        <h3>📊 Metric Followers</h3>
-                        <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+                    <div class="result-item" style="margin-top: 20px;">
+                        <h3 style="margin-bottom: 10px;">📊 Metric Followers</h3>
+                        <table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px;">
                             <thead>
                                 <tr style="background-color: #f5f5f5; border-bottom: 2px solid #ddd;">
-                                    <th style="padding: 12px; text-align: left; border: 1px solid #ddd;">Metric Name</th>
-                                    <th style="padding: 12px; text-align: left; border: 1px solid #ddd;">Follower Count</th>
+                                    <th style="padding: 12px; text-align: left; border: 1px solid #ddd; font-weight: 600;">Metric Name</th>
+                                    <th style="padding: 12px; text-align: left; border: 1px solid #ddd; font-weight: 600;">Follower Count</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1613,7 +1619,7 @@
                     resultsHTML += `
                         <tr style="background-color: ${bgColor};">
                             <td style="padding: 10px; border: 1px solid #ddd;">${row.metric_name}</td>
-                            <td style="padding: 10px; border: 1px solid #ddd;">${row.follower_count}</td>
+                            <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">${row.follower_count}</td>
                         </tr>
                     `;
                 });
@@ -1623,10 +1629,18 @@
                         </table>
                     </div>
                 `;
+            } else {
+                console.log('No metric table data to display');
             }
+            
+            console.log('Final HTML length:', resultsHTML.length);
+            console.log('HTML contains user table?', resultsHTML.includes('👥 User Subscriptions'));
+            console.log('HTML contains metric table?', resultsHTML.includes('📊 Metric Followers'));
             
             resultsDiv.innerHTML = resultsHTML;
             document.getElementById('results').style.display = 'block';
+            
+            console.log('Results div after update:', resultsDiv.innerHTML.substring(0, 500));
         }
 
         // Show error
