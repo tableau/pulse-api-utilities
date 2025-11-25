@@ -1255,9 +1255,27 @@
                         <input type="text" id="tcm_site_luid" name="site_luid" placeholder="Site LUID" required>
                         <small>💡 The LUID of the Tableau site you want to fetch logs for</small>
                     </div>
+                    
+                    <!-- Date Range Selection -->
                     <div class="form-row">
-                        <input type="text" id="tcm_date_range" value="October 1-14, 2025" readonly style="background-color: #f5f5f5; cursor: not-allowed;">
-                        <small>💡 Fetches metric_subscription_change logs for this specific date range (split into 7-day chunks)</small>
+                        <label style="font-weight: 600; margin-bottom: 8px; display: block;">📅 Date Range:</label>
+                        <select id="tcm_date_range_type" name="date_range_type" onchange="toggleTCMDateInputs()" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+                            <option value="last_7_days">Last 7 Days</option>
+                            <option value="custom">Custom Date Range</option>
+                        </select>
+                        <small>💡 Choose between recent logs or a specific date range</small>
+                    </div>
+                    
+                    <!-- Custom Date Inputs (hidden by default) -->
+                    <div id="tcm_custom_dates" style="display: none;">
+                        <div class="form-row">
+                            <input type="date" id="tcm_start_date" name="start_date" placeholder="Start Date">
+                            <small>💡 Start date for custom range (will be split into 7-day chunks)</small>
+                        </div>
+                        <div class="form-row">
+                            <input type="date" id="tcm_end_date" name="end_date" placeholder="End Date">
+                            <small>💡 End date for custom range</small>
+                        </div>
                     </div>
                 </div>
 
@@ -1324,6 +1342,21 @@
         }
 
         // Authentication method toggle
+        function toggleTCMDateInputs() {
+            const dateRangeType = document.getElementById('tcm_date_range_type').value;
+            const customDatesDiv = document.getElementById('tcm_custom_dates');
+            
+            if (dateRangeType === 'custom') {
+                customDatesDiv.style.display = 'block';
+                document.getElementById('tcm_start_date').required = true;
+                document.getElementById('tcm_end_date').required = true;
+            } else {
+                customDatesDiv.style.display = 'none';
+                document.getElementById('tcm_start_date').required = false;
+                document.getElementById('tcm_end_date').required = false;
+            }
+        }
+
         function toggleAuthFields(site) {
             const authMethod = document.getElementById(site + '_auth_method').value;
             const userAuth = document.getElementById(site + '_user_auth');

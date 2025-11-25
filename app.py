@@ -2695,11 +2695,35 @@ def tcm_activity_logs():
         tableau_pat_name = data.get('tableau_pat_name', '').strip()
         tableau_pat_token = data.get('tableau_pat_token', '').strip()
         
-        event_type = 'metric_subscription_change'  # Hardcoded filter
+        # Date range selection
+        date_range_type = data.get('date_range_type', 'last_7_days')
         
-        # Hardcoded date range: October 1-14, 2025
-        target_start_date = datetime(2025, 10, 1, 0, 0, 0)
-        target_end_date = datetime(2025, 10, 14, 23, 59, 59)
+        event_type = 'metric_subscription_change'  # Filter for subscription changes
+        
+        # Calculate date range based on selection
+        if date_range_type == 'last_7_days':
+            target_end_date = datetime.now()
+            target_start_date = target_end_date - timedelta(days=7)
+            date_label = 'Last 7 Days'
+        else:  # custom
+            start_date_str = data.get('start_date', '').strip()
+            end_date_str = data.get('end_date', '').strip()
+            
+            if not start_date_str or not end_date_str:
+                return jsonify({
+                    'success': False,
+                    'error': 'Custom date range requires both start and end dates'
+                })
+            
+            try:
+                target_start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+                target_end_date = datetime.strptime(end_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
+                date_label = f'{start_date_str} to {end_date_str}'
+            except ValueError as e:
+                return jsonify({
+                    'success': False,
+                    'error': f'Invalid date format: {str(e)}'
+                })
         
         # Validate required fields
         if not all([tcm_uri, pat_token, site_luid, tableau_server, tableau_site_id, tableau_pat_name, tableau_pat_token]):
@@ -2710,7 +2734,7 @@ def tcm_activity_logs():
         
         results.append({'success': True, 'message': f'🚀 Starting Tableau Cloud Manager activity log retrieval...'})
         results.append({'success': True, 'message': f'📊 Site LUID: {site_luid}'})
-        results.append({'success': True, 'message': f'📅 Fetching logs: October 1-14, 2025'})
+        results.append({'success': True, 'message': f'📅 Fetching logs: {date_label}'})
         results.append({'success': True, 'message': f'🔍 Event type filter: {event_type}'})
         
         # Step 1: Login to TCM
@@ -2731,20 +2755,20 @@ def tcm_activity_logs():
         results.append({'success': True, 'message': f'✅ Authentication successful! Tenant ID: {tenant_id}'})
         
         # Step 2: Split into 7-day chunks (TCM API limit)
-        # Chunk 1: Oct 1-7, 2025
-        # Chunk 2: Oct 8-14, 2025
-        date_ranges = [
-            {
-                'start': '2025-10-01T00:00:00',
-                'end': '2025-10-07T23:59:59',
-                'label': 'Oct 1-7, 2025'
-            },
-            {
-                'start': '2025-10-08T00:00:00',
-                'end': '2025-10-14T23:59:59',
-                'label': 'Oct 8-14, 2025'
-            }
-        ]
+        date_ranges = []
+        current_start = target_start_date
+        
+        while current_start < target_end_date:
+            # Each chunk is maximum 7 days
+            chunk_end = min(current_start + timedelta(days=7), target_end_date)
+            
+            date_ranges.append({
+                'start': current_start.strftime('%Y-%m-%dT%H:%M:%S'),
+                'end': chunk_end.strftime('%Y-%m-%dT%H:%M:%S'),
+                'label': f'{current_start.strftime("%b %d")} - {chunk_end.strftime("%b %d, %Y")}'
+            })
+            
+            current_start = chunk_end + timedelta(seconds=1)
         
         results.append({'success': True, 'message': f'📅 Split into {len(date_ranges)} date range(s) (7-day API limit)'})
         
@@ -3166,14 +3190,15 @@ def tcm_activity_logs():
         
         # Step 9: Save combined logs to text file (optional, for debugging)
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_filename = f"tcm_metric_subscription_logs_Oct1-14-2025_{site_luid}_{timestamp}.txt"
+        date_file_label = date_label.replace(' ', '_').replace(',', '').replace('-', '_to_')
+        output_filename = f"tcm_metric_subscription_logs_{date_file_label}_{site_luid}_{timestamp}.txt"
         output_path = os.path.join(os.path.dirname(__file__), output_filename)
         
         try:
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(f"TABLEAU CLOUD MANAGER - METRIC SUBSCRIPTION CHANGE LOGS\n")
                 f.write(f"Site LUID: {site_luid}\n")
-                f.write(f"Date Range: October 1-14, 2025\n")
+                f.write(f"Date Range: {date_label}\n")
                 f.write(f"Event type: {event_type}\n")
                 f.write(f"Total Files Downloaded: {downloaded_count}\n")
                 f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
@@ -3194,7 +3219,7 @@ def tcm_activity_logs():
         if failed_count > 0:
             results.append({'success': True, 'message': f'❌ Failed: {failed_count} file(s)'})
         results.append({'success': True, 'message': f'📊 Total log size: {len(combined_logs):,} characters'})
-        results.append({'success': True, 'message': f'📅 Date range: October 1-14, 2025'})
+        results.append({'success': True, 'message': f'📅 Date range: {date_label}'})
         results.append({'success': True, 'message': f'🔍 Event type: {event_type}'})
         results.append({'success': True, 'message': f'📊 CSV Reports:'})
         results.append({'success': True, 'message': f'   • Raw logs saved: {output_filename}'})
