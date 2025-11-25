@@ -9,6 +9,7 @@ import csv
 import io
 from urllib.parse import urlparse
 from typing import List, Dict, Optional
+from datetime import datetime, timedelta
 
 # Create Flask application instance
 app = Flask(__name__)
@@ -888,6 +889,136 @@ def update_pulse_preferences(server_url, auth_token, user_luid, preferences, cur
             
     except Exception as e:
         return {'success': False, 'error': f'Error updating preferences: {str(e)}'}
+
+# ------------------------------
+# Tableau Cloud Manager (TCM) Functions
+# ------------------------------
+
+def tcm_login(tcm_uri, pat_token):
+    """Login to Tableau Cloud Manager and get session token."""
+    url = f"{tcm_uri}/api/v1/pat/login"
+    
+    headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    }
+    
+    payload = {
+        'pat': pat_token
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, verify=True)
+        
+        if response.status_code == 200:
+            response_data = response.json()
+            session_token = response_data.get('sessionToken')
+            tenant_id = response_data.get('tenantId')
+            
+            if session_token and tenant_id:
+                return {
+                    'success': True,
+                    'session_token': session_token,
+                    'tenant_id': tenant_id
+                }
+            else:
+                return {'success': False, 'error': 'Missing sessionToken or tenantId in response'}
+        else:
+            return {
+                'success': False,
+                'error': f"Login failed. Status: {response.status_code}",
+                'response': response.text
+            }
+    except Exception as e:
+        return {'success': False, 'error': f"Error during TCM login: {str(e)}"}
+
+def tcm_request_activity_logs(tcm_uri, session_token, tenant_id, site_id, start_time, end_time):
+    """Request activity log generation for a specific time range."""
+    url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/sites/{site_id}/activitylog"
+    
+    headers = {
+        'Authorization': f'Bearer {session_token}',
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    }
+    
+    payload = {
+        'startTime': start_time,
+        'endTime': end_time
+    }
+    
+    try:
+        # POST to request log generation
+        response = requests.post(url, headers=headers, json=payload, verify=True)
+        
+        if response.status_code in [200, 201, 202]:
+            return {'success': True, 'data': response.json()}
+        else:
+            return {
+                'success': False,
+                'error': f"Request failed. Status: {response.status_code}",
+                'response': response.text
+            }
+    except Exception as e:
+        return {'success': False, 'error': f"Error requesting activity logs: {str(e)}"}
+
+def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start_time, end_time):
+    """Get list of activity log file paths."""
+    url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/sites/{site_id}/activitylog?startTime={start_time}&endTime={end_time}"
+    
+    headers = {
+        'Authorization': f'Bearer {session_token}',
+        'Accept': 'application/json'
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, verify=True)
+        
+        if response.status_code == 200:
+            response_data = response.json()
+            # The response should contain file paths
+            file_paths = response_data.get('filePaths', []) or response_data.get('files', []) or response_data.get('paths', [])
+            
+            return {
+                'success': True,
+                'file_paths': file_paths,
+                'raw_response': response_data
+            }
+        else:
+            return {
+                'success': False,
+                'error': f"Failed to get file paths. Status: {response.status_code}",
+                'response': response.text
+            }
+    except Exception as e:
+        return {'success': False, 'error': f"Error getting activity log paths: {str(e)}"}
+
+def tcm_download_log_file(tcm_uri, session_token, file_path):
+    """Download a single activity log file."""
+    # File path might be absolute or relative
+    if file_path.startswith('http'):
+        url = file_path
+    else:
+        url = f"{tcm_uri}{file_path}"
+    
+    headers = {
+        'Authorization': f'Bearer {session_token}'
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, verify=True, stream=True)
+        
+        if response.status_code == 200:
+            # Return the content as text
+            return {'success': True, 'content': response.text}
+        else:
+            return {
+                'success': False,
+                'error': f"Download failed. Status: {response.status_code}",
+                'response': response.text
+            }
+    except Exception as e:
+        return {'success': False, 'error': f"Error downloading log file: {str(e)}"}
 
 # ------------------------------
 # Flask Routes
@@ -2388,6 +2519,177 @@ def pulse_analytics():
         # Get full stack trace
         tb_str = traceback.format_exc()
         print(f"ERROR in pulse_analytics: {tb_str}")
+        
+        return jsonify({
+            'success': False,
+            'error': f'Unexpected error: {str(e)}',
+            'traceback': tb_str,
+            'error_type': type(e).__name__
+        })
+
+@app.route('/tcm-activity-logs', methods=['POST'])
+def tcm_activity_logs():
+    """Fetch Tableau Cloud Manager activity logs for a site"""
+    try:
+        data = request.json
+        results = []
+        
+        # Extract form data
+        tcm_uri = data.get('tcm_uri', '').rstrip('/')
+        pat_token = data.get('pat_token', '').strip()
+        site_luid = data.get('site_luid', '').strip()
+        days_back = int(data.get('days_back', 14))
+        
+        # Validate required fields
+        if not all([tcm_uri, pat_token, site_luid]):
+            return jsonify({
+                'success': False,
+                'error': 'Missing required fields: tcm_uri, pat_token, and site_luid are required'
+            })
+        
+        results.append({'success': True, 'message': f'🚀 Starting Tableau Cloud Manager activity log retrieval...'})
+        results.append({'success': True, 'message': f'📊 Site LUID: {site_luid}'})
+        results.append({'success': True, 'message': f'📅 Fetching logs for last {days_back} days'})
+        
+        # Calculate date range
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(days=days_back)
+        
+        start_time_str = start_time.strftime('%Y-%m-%dT%H:%M:%S')
+        end_time_str = end_time.strftime('%Y-%m-%dT%H:%M:%S')
+        
+        results.append({'success': True, 'message': f'📅 Date range: {start_time_str} to {end_time_str}'})
+        
+        # Step 1: Login to TCM
+        results.append({'success': True, 'message': '🔐 Authenticating with Tableau Cloud Manager...'})
+        
+        login_result = tcm_login(tcm_uri, pat_token)
+        
+        if not login_result['success']:
+            return jsonify({
+                'success': False,
+                'error': f"TCM authentication failed: {login_result['error']}",
+                'response': login_result.get('response', '')
+            })
+        
+        session_token = login_result['session_token']
+        tenant_id = login_result['tenant_id']
+        
+        results.append({'success': True, 'message': f'✅ Authentication successful! Tenant ID: {tenant_id}'})
+        
+        # Step 2: Request activity log generation
+        results.append({'success': True, 'message': '📝 Requesting activity log generation...'})
+        
+        request_result = tcm_request_activity_logs(tcm_uri, session_token, tenant_id, site_luid, start_time_str, end_time_str)
+        
+        if not request_result['success']:
+            return jsonify({
+                'success': False,
+                'error': f"Failed to request activity logs: {request_result['error']}",
+                'response': request_result.get('response', '')
+            })
+        
+        results.append({'success': True, 'message': '✅ Activity log generation requested'})
+        
+        # Step 3: Get list of log file paths
+        results.append({'success': True, 'message': '📂 Retrieving activity log file paths...'})
+        
+        paths_result = tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_luid, start_time_str, end_time_str)
+        
+        if not paths_result['success']:
+            return jsonify({
+                'success': False,
+                'error': f"Failed to get file paths: {paths_result['error']}",
+                'response': paths_result.get('response', '')
+            })
+        
+        file_paths = paths_result['file_paths']
+        results.append({'success': True, 'message': f'✅ Found {len(file_paths)} log file(s)'})
+        
+        # Log the raw response to help debug
+        print(f"DEBUG: TCM file paths response: {json.dumps(paths_result['raw_response'], indent=2)}")
+        
+        if not file_paths:
+            results.append({'success': True, 'message': '⚠️  No log files found for the specified date range'})
+            results.append({'success': True, 'message': 'ℹ️  This could mean there was no activity during this period'})
+            
+            return jsonify({
+                'success': True,
+                'results': results,
+                'summary': 'No activity logs found for the specified date range',
+                'log_count': 0,
+                'combined_logs': ''
+            })
+        
+        # Step 4: Download all log files
+        results.append({'success': True, 'message': f'\n📥 Downloading {len(file_paths)} log file(s)...'})
+        
+        all_logs = []
+        downloaded_count = 0
+        failed_count = 0
+        
+        for i, file_path in enumerate(file_paths, 1):
+            results.append({'success': True, 'message': f'  [{i}/{len(file_paths)}] Downloading: {file_path}'})
+            
+            download_result = tcm_download_log_file(tcm_uri, session_token, file_path)
+            
+            if download_result['success']:
+                log_content = download_result['content']
+                all_logs.append(f"\n{'='*80}\n")
+                all_logs.append(f"LOG FILE: {file_path}\n")
+                all_logs.append(f"{'='*80}\n")
+                all_logs.append(log_content)
+                all_logs.append("\n")
+                
+                # Log a preview of the content
+                print(f"DEBUG: Downloaded log file {i}/{len(file_paths)}: {file_path}")
+                print(f"DEBUG: Content preview (first 500 chars): {log_content[:500]}")
+                
+                downloaded_count += 1
+                results.append({'success': True, 'message': f'  ✅ Downloaded successfully'})
+            else:
+                failed_count += 1
+                results.append({'success': False, 'message': f'  ❌ Failed: {download_result["error"]}'})
+        
+        # Combine all logs
+        combined_logs = ''.join(all_logs)
+        
+        # Log the combined output (truncated for console)
+        print(f"\n{'='*100}")
+        print(f"COMBINED ACTIVITY LOGS ({len(combined_logs)} characters)")
+        print(f"{'='*100}")
+        print(combined_logs[:2000])  # Print first 2000 characters to console
+        if len(combined_logs) > 2000:
+            print(f"\n... (truncated, {len(combined_logs) - 2000} more characters)")
+        print(f"{'='*100}\n")
+        
+        # Summary
+        results.append({'success': True, 'message': '\n📊 SUMMARY'})
+        results.append({'success': True, 'message': '=' * 60})
+        results.append({'success': True, 'message': f'✅ Successfully downloaded: {downloaded_count} file(s)'})
+        if failed_count > 0:
+            results.append({'success': True, 'message': f'❌ Failed: {failed_count} file(s)'})
+        results.append({'success': True, 'message': f'📊 Total log size: {len(combined_logs):,} characters'})
+        results.append({'success': True, 'message': f'📅 Date range: {start_time_str} to {end_time_str}'})
+        
+        summary = f"Successfully downloaded {downloaded_count} activity log file(s)"
+        if failed_count > 0:
+            summary += f", {failed_count} failed"
+        
+        return jsonify({
+            'success': True,
+            'results': results,
+            'summary': summary,
+            'log_count': downloaded_count,
+            'failed_count': failed_count,
+            'combined_logs': combined_logs,
+            'file_paths': file_paths
+        })
+        
+    except Exception as e:
+        # Get full stack trace
+        tb_str = traceback.format_exc()
+        print(f"ERROR in tcm_activity_logs: {tb_str}")
         
         return jsonify({
             'success': False,
