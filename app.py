@@ -2694,10 +2694,8 @@ def tcm_activity_logs():
             })
         
         file_paths = paths_result['file_paths']
-        results.append({'success': True, 'message': f'✅ Found {len(file_paths)} log file(s)'})
-        
-        # Log the raw response to help debug
-        print(f"DEBUG: TCM file paths response: {json.dumps(paths_result['raw_response'], indent=2)}")
+        page_count = paths_result.get('page_count', 1)
+        results.append({'success': True, 'message': f'✅ Found {len(file_paths)} log file path(s) across {page_count} page(s)'})
         
         if not file_paths:
             results.append({'success': True, 'message': '⚠️  No log files found for the specified date range'})
@@ -2706,126 +2704,110 @@ def tcm_activity_logs():
             return jsonify({
                 'success': True,
                 'results': results,
-                'summary': 'No activity logs found for the specified date range',
-                'log_count': 0,
-                'combined_logs': ''
+                'summary': 'No activity log paths found for the specified date range',
+                'file_count': 0
             })
         
-        # Step 3: Get download URLs (POST request with file paths)
-        results.append({'success': True, 'message': f'🔗 Getting download URL for {len(file_paths)} file(s)...'})
-        
-        urls_result = tcm_get_download_urls(tcm_uri, session_token, tenant_id, site_luid, file_paths)
-        
-        if not urls_result['success']:
-            return jsonify({
-                'success': False,
-                'error': f"Failed to get download URLs: {urls_result['error']}",
-                'response': urls_result.get('response', '')
-            })
-        
-        # The response has a 'files' array, each with its own 'url'
-        response_data = urls_result['data']
-        files_with_urls = response_data.get('files', [])
-        
-        if not files_with_urls:
-            return jsonify({
-                'success': False,
-                'error': 'No files with download URLs found in response',
-                'response': json.dumps(response_data)
-            })
-        
-        results.append({'success': True, 'message': f'✅ Got download URLs for {len(files_with_urls)} file(s)'})
-        
-        # Step 4: Download each log file
-        results.append({'success': True, 'message': f'⬇️  Downloading {len(files_with_urls)} activity log file(s)...'})
-        
-        all_logs = []
-        downloaded_count = 0
-        failed_count = 0
-        
-        for i, file_obj in enumerate(files_with_urls, 1):
-            download_url = file_obj.get('url')
-            file_path = file_obj.get('path', f'file_{i}')
-            
-            if not download_url:
-                results.append({'success': False, 'message': f'  ⚠️  File {i}: No download URL'})
-                failed_count += 1
-                continue
-            
-            results.append({'success': True, 'message': f'  [{i}/{len(files_with_urls)}] Downloading...'})
-            
-            download_result = tcm_download_log_file(download_url, session_token)
-            
-            if download_result['success']:
-                log_content = download_result['content']
-                all_logs.append(f"\n{'='*80}\n")
-                all_logs.append(f"LOG FILE: {file_path}\n")
-                all_logs.append(f"{'='*80}\n")
-                all_logs.append(log_content)
-                all_logs.append("\n")
-                
-                downloaded_count += 1
-                results.append({'success': True, 'message': f'  ✅ Downloaded successfully'})
-            else:
-                failed_count += 1
-                results.append({'success': False, 'message': f'  ❌ Failed: {download_result["error"]}'})
-        
-        # Combine all logs
-        combined_logs = ''.join(all_logs)
-        results.append({'success': True, 'message': f'✅ Downloaded {downloaded_count}/{len(files_with_urls)} log file(s)'})
-        
-        # Save to local file with timestamp
+        # Save file paths to JSON file
         timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
-        output_filename = f"tcm_activity_logs_{site_luid}_{timestamp}.txt"
+        output_filename = f"tcm_activity_log_paths_{site_luid}_{timestamp}.json"
         output_path = os.path.join(os.path.dirname(__file__), output_filename)
+        
+        # Organize data by event type for easy analysis
+        files_by_event_type = {}
+        for file_path_obj in file_paths:
+            # Extract path string if it's a dict
+            if isinstance(file_path_obj, dict):
+                path = file_path_obj.get('path', '')
+                size = file_path_obj.get('size', 0)
+            else:
+                path = file_path_obj
+                size = 0
+            
+            # Extract event type from path
+            if '/eventType=' in path:
+                event_type = path.split('/eventType=')[1].split('/')[0]
+            else:
+                event_type = 'unknown'
+            
+            if event_type not in files_by_event_type:
+                files_by_event_type[event_type] = []
+            
+            files_by_event_type[event_type].append({
+                'path': path,
+                'size': size
+            })
+        
+        # Create summary data
+        output_data = {
+            'metadata': {
+                'site_luid': site_luid,
+                'start_time': start_time_str,
+                'end_time': end_time_str,
+                'days_back': days_back,
+                'total_files': len(file_paths),
+                'page_count': page_count,
+                'generated_at': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S') + ' UTC'
+            },
+            'event_type_summary': {
+                event_type: len(files) 
+                for event_type, files in sorted(files_by_event_type.items())
+            },
+            'files_by_event_type': {
+                event_type: files 
+                for event_type, files in sorted(files_by_event_type.items())
+            },
+            'all_files': file_paths
+        }
         
         try:
             with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(f"TABLEAU CLOUD MANAGER ACTIVITY LOGS\n")
-                f.write(f"Site LUID: {site_luid}\n")
-                f.write(f"Date Range: {start_time_str} to {end_time_str}\n")
-                f.write(f"Total Files Downloaded: {downloaded_count}\n")
-                f.write(f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC\n")
-                f.write("="*80 + "\n\n")
-                f.write(combined_logs)
+                json.dump(output_data, f, indent=2)
             
-            results.append({'success': True, 'message': f'💾 Saved to file: {output_filename}'})
+            results.append({'success': True, 'message': f'💾 Saved file paths to: {output_filename}'})
             results.append({'success': True, 'message': f'📁 Full path: {output_path}'})
-            print(f"\n✅ Activity logs saved to: {output_path}\n")
+            print(f"\n✅ Activity log paths saved to: {output_path}\n")
+            
+            # Print summary to console
+            print(f"\n{'='*80}")
+            print(f"ACTIVITY LOG FILE PATHS SUMMARY")
+            print(f"{'='*80}")
+            print(f"Total files: {len(file_paths)}")
+            print(f"Event types found: {len(files_by_event_type)}")
+            print(f"\nFiles by event type:")
+            for event_type, files in sorted(files_by_event_type.items(), key=lambda x: -len(x[1])):
+                print(f"  {event_type}: {len(files)} file(s)")
+            print(f"{'='*80}\n")
+            
         except Exception as e:
             results.append({'success': False, 'message': f'⚠️  Failed to save file: {str(e)}'})
             print(f"ERROR saving file: {str(e)}")
-        
-        # Log the combined output (truncated for console)
-        print(f"\n{'='*100}")
-        print(f"COMBINED ACTIVITY LOGS ({len(combined_logs)} characters)")
-        print(f"{'='*100}")
-        print(combined_logs[:2000])  # Print first 2000 characters to console
-        if len(combined_logs) > 2000:
-            print(f"\n... (truncated, {len(combined_logs) - 2000} more characters)")
-        print(f"{'='*100}\n")
+            return jsonify({
+                'success': False,
+                'error': f"Failed to save file paths: {str(e)}"
+            })
         
         # Summary
         results.append({'success': True, 'message': '\n📊 SUMMARY'})
         results.append({'success': True, 'message': '=' * 60})
-        results.append({'success': True, 'message': f'✅ Successfully downloaded: {downloaded_count} file(s)'})
-        if failed_count > 0:
-            results.append({'success': True, 'message': f'❌ Failed: {failed_count} file(s)'})
-        results.append({'success': True, 'message': f'📊 Total log size: {len(combined_logs):,} characters'})
+        results.append({'success': True, 'message': f'📁 Total file paths: {len(file_paths)}'})
+        results.append({'success': True, 'message': f'📄 Pages retrieved: {page_count}'})
+        results.append({'success': True, 'message': f'🏷️  Event types: {len(files_by_event_type)}'})
         results.append({'success': True, 'message': f'📅 Date range: {start_time_str} to {end_time_str}'})
         
-        summary = f"Successfully downloaded {downloaded_count} activity log file(s)"
-        if failed_count > 0:
-            summary += f", {failed_count} failed"
+        # Show top event types
+        results.append({'success': True, 'message': '\n🏷️  TOP EVENT TYPES:'})
+        for event_type, files in sorted(files_by_event_type.items(), key=lambda x: -len(x[1]))[:10]:
+            results.append({'success': True, 'message': f'  • {event_type}: {len(files)} file(s)'})
         
         return jsonify({
             'success': True,
             'results': results,
-            'summary': summary,
-            'log_count': downloaded_count,
-            'failed_count': failed_count,
-            'combined_logs': combined_logs,
-            'file_paths': file_paths
+            'summary': f"Found {len(file_paths)} activity log files across {len(files_by_event_type)} event types",
+            'file_count': len(file_paths),
+            'event_types': list(files_by_event_type.keys()),
+            'event_type_counts': output_data['event_type_summary'],
+            'output_file': output_filename
         })
         
     except Exception as e:
