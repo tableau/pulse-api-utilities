@@ -3131,81 +3131,41 @@ def tcm_activity_logs():
                 results.append({'success': False, 'message': f'  ⚠️  Error fetching metrics: {str(e)}'})
                 metric_name_map = {}
         
-        # Step 8: Create enriched reports
-        results.append({'success': True, 'message': '\n📊 Generating enriched reports...'})
+        # Step 8: Create enriched reports for display
+        results.append({'success': True, 'message': '\n📊 Generating analysis reports...'})
         
         print(f"\nDEBUG: Creating reports...")
         print(f"DEBUG: User name map has {len(user_name_map)} entries")
         print(f"DEBUG: Metric name map has {len(metric_name_map)} entries")
         print(f"DEBUG: Processing {len(user_metrics)} users and {len(metric_followers)} metrics")
         
-        user_report = []
+        # Build user report data (username and count only)
+        user_report_data = []
         for user_luid, metrics in sorted(user_metrics.items(), key=lambda x: -len(x[1])):
-            username = user_name_map.get(user_luid, user_luid)
-            if username == user_luid and len(user_report) < 3:
+            username = user_name_map.get(user_luid, f"Unknown User ({user_luid[:8]}...)")
+            if username == user_luid and len(user_report_data) < 3:
                 print(f"DEBUG: No username found for LUID: {user_luid}")
-            user_report.append({
-                'user_luid': user_luid,
+            user_report_data.append({
                 'username': username,
-                'metrics_following': len(metrics),
-                'metric_ids': list(metrics)
+                'metrics_following': len(metrics)
             })
         
-        metric_report = []
+        # Build metric report data (metric name and follower count only)
+        metric_report_data = []
         for metric_id, followers in sorted(metric_followers.items(), key=lambda x: -len(x[1])):
-            metric_name = metric_name_map.get(metric_id, metric_id)
-            if metric_name == metric_id and len(metric_report) < 3:
+            metric_name = metric_name_map.get(metric_id, f"Unknown Metric ({metric_id[:8]}...)")
+            if metric_name == metric_id and len(metric_report_data) < 3:
                 print(f"DEBUG: No metric name found for ID: {metric_id}")
-            metric_report.append({
-                'metric_id': metric_id,
+            metric_report_data.append({
                 'metric_name': metric_name,
-                'follower_count': len(followers),
-                'follower_luids': list(followers)
+                'follower_count': len(followers)
             })
         
-        results.append({'success': True, 'message': f'  ✅ Generated user report ({len(user_report)} users)'})
-        results.append({'success': True, 'message': f'  ✅ Generated metric report ({len(metric_report)} metrics)'})
+        results.append({'success': True, 'message': f'  ✅ Generated user report ({len(user_report_data)} users)'})
+        results.append({'success': True, 'message': f'  ✅ Generated metric report ({len(metric_report_data)} metrics)'})
         
-        # Step 9: Save enriched analysis reports
+        # Step 9: Save combined logs to text file (optional, for debugging)
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        
-        # Save user report
-        user_report_filename = f"tcm_user_subscriptions_Oct1-14-2025_{site_luid}_{timestamp}.csv"
-        user_report_path = os.path.join(os.path.dirname(__file__), user_report_filename)
-        
-        try:
-            with open(user_report_path, 'w', encoding='utf-8', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(['User LUID', 'Username', 'Metrics Following'])
-                for row in user_report:
-                    writer.writerow([
-                        row['user_luid'],
-                        row['username'],
-                        row['metrics_following']
-                    ])
-            results.append({'success': True, 'message': f'💾 User report saved: {user_report_filename}'})
-        except Exception as e:
-            results.append({'success': False, 'message': f'❌ Failed to save user report: {str(e)}'})
-        
-        # Save metric report
-        metric_report_filename = f"tcm_metric_followers_Oct1-14-2025_{site_luid}_{timestamp}.csv"
-        metric_report_path = os.path.join(os.path.dirname(__file__), metric_report_filename)
-        
-        try:
-            with open(metric_report_path, 'w', encoding='utf-8', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(['Metric ID', 'Metric Name', 'Follower Count'])
-                for row in metric_report:
-                    writer.writerow([
-                        row['metric_id'],
-                        row['metric_name'],
-                        row['follower_count']
-                    ])
-            results.append({'success': True, 'message': f'💾 Metric report saved: {metric_report_filename}'})
-        except Exception as e:
-            results.append({'success': False, 'message': f'❌ Failed to save metric report: {str(e)}'})
-        
-        # Step 10: Save combined logs to text file  
         output_filename = f"tcm_metric_subscription_logs_Oct1-14-2025_{site_luid}_{timestamp}.txt"
         output_path = os.path.join(os.path.dirname(__file__), output_filename)
         
@@ -3237,11 +3197,11 @@ def tcm_activity_logs():
         results.append({'success': True, 'message': f'📅 Date range: October 1-14, 2025'})
         results.append({'success': True, 'message': f'🔍 Event type: {event_type}'})
         results.append({'success': True, 'message': f'📊 CSV Reports:'})
-        results.append({'success': True, 'message': f'   • User subscriptions: {user_report_filename}'})
-        results.append({'success': True, 'message': f'   • Metric followers: {metric_report_filename}'})
-        results.append({'success': True, 'message': f'   • Raw logs: {output_filename}'})
+        results.append({'success': True, 'message': f'   • Raw logs saved: {output_filename}'})
+        results.append({'success': True, 'message': f'   • {len(user_report_data)} users analyzed'})
+        results.append({'success': True, 'message': f'   • {len(metric_report_data)} metrics analyzed'})
         
-        summary = f"Downloaded {downloaded_count} logs, analyzed {len(subscription_events)} events, created 2 CSV reports"
+        summary = f"Downloaded {downloaded_count} logs, analyzed {len(subscription_events)} events"
         if failed_count > 0:
             summary += f", {failed_count} failed"
         
@@ -3252,11 +3212,11 @@ def tcm_activity_logs():
             'log_count': downloaded_count,
             'failed_count': failed_count,
             'output_file': output_filename,
-            'user_report_file': user_report_filename,
-            'metric_report_file': metric_report_filename,
             'events_analyzed': len(subscription_events),
             'unique_users': len(user_luids),
-            'unique_metrics': len(metric_ids)
+            'unique_metrics': len(metric_ids),
+            'user_table': user_report_data,
+            'metric_table': metric_report_data
         })
         
     except Exception as e:

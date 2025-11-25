@@ -1527,6 +1527,106 @@
             document.getElementById('results').style.display = 'block';
         }
 
+        // Show TCM results with tables
+        function showTCMResults(result, completionMessage = '✅ Analysis completed!') {
+            const progressDiv = document.getElementById('progress');
+            const resultsDiv = document.getElementById('copyResults');
+            
+            progressDiv.innerHTML = completionMessage;
+            
+            let resultsHTML = '';
+            
+            // Show progress messages
+            if (result.results && result.results.length > 0) {
+                result.results.forEach(item => {
+                    const statusClass = item.success ? 'success' : 'error';
+                    const statusIcon = item.success ? '✅' : '❌';
+                    resultsHTML += `
+                        <div class="result-item ${statusClass}">
+                            ${statusIcon} ${item.message}
+                        </div>
+                    `;
+                });
+            }
+            
+            // Show summary
+            if (result.summary) {
+                resultsHTML += `
+                    <div class="result-item">
+                        <strong>📊 Summary:</strong><br>
+                        ${result.summary}
+                    </div>
+                `;
+            }
+            
+            // Show User Subscriptions Table
+            if (result.user_table && result.user_table.length > 0) {
+                resultsHTML += `
+                    <div class="result-item">
+                        <h3>👥 User Subscriptions</h3>
+                        <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+                            <thead>
+                                <tr style="background-color: #f5f5f5; border-bottom: 2px solid #ddd;">
+                                    <th style="padding: 12px; text-align: left; border: 1px solid #ddd;">Username</th>
+                                    <th style="padding: 12px; text-align: left; border: 1px solid #ddd;">Metrics Following</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+                
+                result.user_table.forEach((row, index) => {
+                    const bgColor = index % 2 === 0 ? '#fff' : '#f9f9f9';
+                    resultsHTML += `
+                        <tr style="background-color: ${bgColor};">
+                            <td style="padding: 10px; border: 1px solid #ddd;">${row.username}</td>
+                            <td style="padding: 10px; border: 1px solid #ddd;">${row.metrics_following}</td>
+                        </tr>
+                    `;
+                });
+                
+                resultsHTML += `
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+            
+            // Show Metric Followers Table
+            if (result.metric_table && result.metric_table.length > 0) {
+                resultsHTML += `
+                    <div class="result-item">
+                        <h3>📊 Metric Followers</h3>
+                        <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+                            <thead>
+                                <tr style="background-color: #f5f5f5; border-bottom: 2px solid #ddd;">
+                                    <th style="padding: 12px; text-align: left; border: 1px solid #ddd;">Metric Name</th>
+                                    <th style="padding: 12px; text-align: left; border: 1px solid #ddd;">Follower Count</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+                
+                result.metric_table.forEach((row, index) => {
+                    const bgColor = index % 2 === 0 ? '#fff' : '#f9f9f9';
+                    resultsHTML += `
+                        <tr style="background-color: ${bgColor};">
+                            <td style="padding: 10px; border: 1px solid #ddd;">${row.metric_name}</td>
+                            <td style="padding: 10px; border: 1px solid #ddd;">${row.follower_count}</td>
+                        </tr>
+                    `;
+                });
+                
+                resultsHTML += `
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+            
+            resultsDiv.innerHTML = resultsHTML;
+            document.getElementById('results').style.display = 'block';
+        }
+
         // Show error
         function showError(errorMessage, failureMessage = '❌ Process failed', errorData = null) {
             const progressDiv = document.getElementById('progress');
@@ -1951,7 +2051,7 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    showResults(result, '✅ Activity logs retrieved successfully!');
+                    showTCMResults(result, '✅ Activity logs analyzed successfully!');
                 } else {
                     showError(result.error || 'Unknown error occurred', '❌ TCM activity log retrieval failed', result);
                 }
