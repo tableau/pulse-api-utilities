@@ -1565,34 +1565,34 @@
             console.log('Checking user_table:', result.user_table);
             if (result.user_table && result.user_table.length > 0) {
                 console.log('Rendering user table with', result.user_table.length, 'rows');
-                resultsHTML += `
-                    <div class="result-item" style="margin-top: 20px;">
-                        <h3 style="margin-bottom: 10px;">👥 User Subscriptions</h3>
-                        <table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px;">
-                            <thead>
-                                <tr style="background-color: #f5f5f5; border-bottom: 2px solid #ddd;">
-                                    <th style="padding: 12px; text-align: left; border: 1px solid #ddd; font-weight: 600;">Username</th>
-                                    <th style="padding: 12px; text-align: left; border: 1px solid #ddd; font-weight: 600;">Metrics Following</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                `;
+                
+                let userTableHTML = '<div class="result-item" style="margin-top: 20px; padding: 15px; background-color: white; border-radius: 8px;">';
+                userTableHTML += '<h3 style="margin-bottom: 15px; color: #333;">👥 User Subscriptions</h3>';
+                userTableHTML += '<div style="overflow-x: auto;">';
+                userTableHTML += '<table style="width: 100%; border-collapse: collapse; font-size: 14px; background-color: white;">';
+                userTableHTML += '<thead>';
+                userTableHTML += '<tr style="background-color: #f5f5f5; border-bottom: 2px solid #ddd;">';
+                userTableHTML += '<th style="padding: 12px; text-align: left; border: 1px solid #ddd; font-weight: 600;">Username</th>';
+                userTableHTML += '<th style="padding: 12px; text-align: center; border: 1px solid #ddd; font-weight: 600; width: 150px;">Metrics Following</th>';
+                userTableHTML += '</tr>';
+                userTableHTML += '</thead>';
+                userTableHTML += '<tbody>';
                 
                 result.user_table.forEach((row, index) => {
                     const bgColor = index % 2 === 0 ? '#fff' : '#f9f9f9';
-                    resultsHTML += `
-                        <tr style="background-color: ${bgColor};">
-                            <td style="padding: 10px; border: 1px solid #ddd;">${row.username}</td>
-                            <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">${row.metrics_following}</td>
-                        </tr>
-                    `;
+                    userTableHTML += '<tr style="background-color: ' + bgColor + ';">';
+                    userTableHTML += '<td style="padding: 10px; border: 1px solid #ddd;">' + row.username + '</td>';
+                    userTableHTML += '<td style="padding: 10px; border: 1px solid #ddd; text-align: center;">' + row.metrics_following + '</td>';
+                    userTableHTML += '</tr>';
                 });
                 
-                resultsHTML += `
-                            </tbody>
-                        </table>
-                    </div>
-                `;
+                userTableHTML += '</tbody>';
+                userTableHTML += '</table>';
+                userTableHTML += '</div>';
+                userTableHTML += '</div>';
+                
+                resultsHTML += userTableHTML;
+                console.log('User table HTML added, length:', userTableHTML.length);
             } else {
                 console.log('No user table data to display');
             }
@@ -1601,34 +1601,34 @@
             console.log('Checking metric_table:', result.metric_table);
             if (result.metric_table && result.metric_table.length > 0) {
                 console.log('Rendering metric table with', result.metric_table.length, 'rows');
-                resultsHTML += `
-                    <div class="result-item" style="margin-top: 20px;">
-                        <h3 style="margin-bottom: 10px;">📊 Metric Followers</h3>
-                        <table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px;">
-                            <thead>
-                                <tr style="background-color: #f5f5f5; border-bottom: 2px solid #ddd;">
-                                    <th style="padding: 12px; text-align: left; border: 1px solid #ddd; font-weight: 600;">Metric Name</th>
-                                    <th style="padding: 12px; text-align: left; border: 1px solid #ddd; font-weight: 600;">Follower Count</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                `;
+                
+                let metricTableHTML = '<div class="result-item" style="margin-top: 20px; padding: 15px; background-color: white; border-radius: 8px;">';
+                metricTableHTML += '<h3 style="margin-bottom: 15px; color: #333;">📊 Metric Followers</h3>';
+                metricTableHTML += '<div style="overflow-x: auto;">';
+                metricTableHTML += '<table style="width: 100%; border-collapse: collapse; font-size: 14px; background-color: white;">';
+                metricTableHTML += '<thead>';
+                metricTableHTML += '<tr style="background-color: #f5f5f5; border-bottom: 2px solid #ddd;">';
+                metricTableHTML += '<th style="padding: 12px; text-align: left; border: 1px solid #ddd; font-weight: 600;">Metric Name</th>';
+                metricTableHTML += '<th style="padding: 12px; text-align: center; border: 1px solid #ddd; font-weight: 600; width: 150px;">Follower Count</th>';
+                metricTableHTML += '</tr>';
+                metricTableHTML += '</thead>';
+                metricTableHTML += '<tbody>';
                 
                 result.metric_table.forEach((row, index) => {
                     const bgColor = index % 2 === 0 ? '#fff' : '#f9f9f9';
-                    resultsHTML += `
-                        <tr style="background-color: ${bgColor};">
-                            <td style="padding: 10px; border: 1px solid #ddd;">${row.metric_name}</td>
-                            <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">${row.follower_count}</td>
-                        </tr>
-                    `;
+                    metricTableHTML += '<tr style="background-color: ' + bgColor + ';">';
+                    metricTableHTML += '<td style="padding: 10px; border: 1px solid #ddd;">' + row.metric_name + '</td>';
+                    metricTableHTML += '<td style="padding: 10px; border: 1px solid #ddd; text-align: center;">' + row.follower_count + '</td>';
+                    metricTableHTML += '</tr>';
                 });
                 
-                resultsHTML += `
-                            </tbody>
-                        </table>
-                    </div>
-                `;
+                metricTableHTML += '</tbody>';
+                metricTableHTML += '</table>';
+                metricTableHTML += '</div>';
+                metricTableHTML += '</div>';
+                
+                resultsHTML += metricTableHTML;
+                console.log('Metric table HTML added, length:', metricTableHTML.length);
             } else {
                 console.log('No metric table data to display');
             }
