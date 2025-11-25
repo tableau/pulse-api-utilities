@@ -2988,10 +2988,16 @@ def tcm_activity_logs():
                 definitions_url = f"{tableau_server}/api/-/pulse/definitions?page_size=1000"
                 definitions_response = requests.get(definitions_url, headers={'X-Tableau-Auth': auth_token}, verify=True, timeout=30)
                 
+                print(f"DEBUG: Definitions API call: {definitions_url}")
+                print(f"DEBUG: Definitions response status: {definitions_response.status_code}")
+                
                 metric_name_map = {}
                 if definitions_response.status_code == 200:
                     definitions_data = definitions_response.json()
                     definitions = definitions_data.get('metric_definitions', [])
+                    print(f"DEBUG: Found {len(definitions)} definitions")
+                    if definitions:
+                        print(f"DEBUG: First definition: {definitions[0].get('metadata', {})}")
                     
                     # Need to get all metrics for each definition
                     # For now, use definition names as metric names
@@ -3008,14 +3014,23 @@ def tcm_activity_logs():
                             pass
                     
                     # Alternative: Get metric details for each unique metric_id
-                    for metric_id in metric_ids:
+                    print(f"DEBUG: Looking up {len(metric_ids)} metrics individually...")
+                    success_count = 0
+                    for i, metric_id in enumerate(metric_ids, 1):
                         try:
                             metric_url = f"{tableau_server}/api/-/pulse/metrics/{metric_id}"
                             metric_response = requests.get(metric_url, headers={'X-Tableau-Auth': auth_token}, verify=True, timeout=10)
                             
+                            if i <= 3:
+                                print(f"DEBUG: Metric {i} ({metric_id}): status {metric_response.status_code}")
+                            
                             if metric_response.status_code == 200:
                                 metric_data = metric_response.json()
                                 def_id = metric_data.get('definition_id') or metric_data.get('metadata', {}).get('definition_id')
+                                
+                                if i <= 3:
+                                    print(f"DEBUG: Metric {i} definition_id: {def_id}")
+                                    print(f"DEBUG: Metric {i} data keys: {list(metric_data.keys())}")
                                 
                                 # Find the definition name
                                 for definition in definitions:
@@ -3026,9 +3041,22 @@ def tcm_activity_logs():
                                         if filters:
                                             metric_name += ' (Scoped)'
                                         metric_name_map[metric_id] = metric_name
+                                        success_count += 1
+                                        if i <= 3:
+                                            print(f"DEBUG: Metric {i} mapped to: {metric_name}")
                                         break
-                        except Exception:
+                                else:
+                                    if i <= 3:
+                                        print(f"DEBUG: Metric {i} - definition {def_id} not found in definitions list")
+                            else:
+                                if i <= 3:
+                                    print(f"DEBUG: Metric {i} fetch failed: {metric_response.text[:200]}")
+                        except Exception as e:
+                            if i <= 3:
+                                print(f"DEBUG: Metric {i} exception: {str(e)}")
                             continue
+                    
+                    print(f"DEBUG: Successfully mapped {success_count}/{len(metric_ids)} metrics")
                     
                     results.append({'success': True, 'message': f'  ✅ Mapped {len(metric_name_map)}/{len(metric_ids)} metrics'})
                     print(f"DEBUG: Metric map sample (first 3): {list(metric_name_map.items())[:3]}")
