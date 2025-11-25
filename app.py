@@ -948,7 +948,7 @@ def tcm_login(tcm_uri, pat_token):
         print(f"DEBUG: Exception during TCM login: {tb}")
         return {'success': False, 'error': f"Error during TCM login: {str(e)}", 'traceback': tb}
 
-def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start_time, end_time):
+def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start_time, end_time, max_pages=100):
     """Get list of activity log file paths - Step 1: GET request with pagination support."""
     all_file_paths = []
     page_token = None
@@ -962,6 +962,12 @@ def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start
     try:
         while True:
             page_count += 1
+            
+            # Safety limit to prevent infinite loops
+            if page_count > max_pages:
+                print(f"WARNING: Reached max pages limit ({max_pages}), stopping pagination")
+                break
+            
             # Build URL with pagination token if available - URL encode the datetime strings
             encoded_start = quote(start_time, safe='')
             encoded_end = quote(end_time, safe='')
@@ -974,11 +980,10 @@ def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start
             print(f"DEBUG: Request headers: {{'x-tableau-session-token': '***REDACTED***', 'Accept': 'application/json'}}")
             print(f"DEBUG: Session token length: {len(session_token) if session_token else 0}")
             
-            response = requests.get(url, headers=headers, verify=True)
+            # Add timeout to prevent hanging
+            response = requests.get(url, headers=headers, verify=True, timeout=30)
             
             print(f"DEBUG: Get paths response status (page {page_count}): {response.status_code}")
-            print(f"DEBUG: Get paths response headers (page {page_count}): {response.headers}")
-            print(f"DEBUG: Get paths response (page {page_count}): {response.text}")
             
             # Check for empty response or 403 on pagination (can signal end of results)
             if not response.text or response.text.strip() == '':
@@ -1002,13 +1007,13 @@ def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start
             response_data = response.json()
             
             print(f"DEBUG: Response keys on page {page_count}: {response_data.keys()}")
-            print(f"DEBUG: Full response data on page {page_count}: {json.dumps(response_data, indent=2)}")
             
             # The response should contain file paths
             file_paths = response_data.get('filePaths', []) or response_data.get('files', []) or response_data.get('paths', [])
             
             print(f"DEBUG: File paths on page {page_count}: {len(file_paths)}")
-            if file_paths:
+            print(f"DEBUG: Total collected so far: {len(all_file_paths) + len(file_paths)}")
+            if file_paths and page_count == 1:
                 print(f"DEBUG: First file path type: {type(file_paths[0])}")
                 print(f"DEBUG: First file path: {file_paths[0]}")
             
@@ -1028,9 +1033,31 @@ def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start
             'raw_response': response_data,  # Last page response
             'page_count': page_count
         }
+    except requests.exceptions.Timeout:
+        print(f"ERROR: Request timed out after page {page_count}")
+        if all_file_paths:
+            # Return partial results
+            return {
+                'success': True,
+                'file_paths': all_file_paths,
+                'raw_response': {'partial': True, 'message': f'Timeout after page {page_count}'},
+                'page_count': page_count,
+                'partial': True
+            }
+        else:
+            return {'success': False, 'error': f"Request timed out on page {page_count}"}
     except Exception as e:
         tb = traceback.format_exc()
         print(f"DEBUG: Exception getting paths: {tb}")
+        if all_file_paths:
+            # Return partial results if we got some data
+            return {
+                'success': True,
+                'file_paths': all_file_paths,
+                'raw_response': {'partial': True, 'error': str(e)},
+                'page_count': page_count,
+                'partial': True
+            }
         return {'success': False, 'error': f"Error getting activity log paths: {str(e)}"}
 
 def tcm_get_download_urls(tcm_uri, session_token, tenant_id, site_id, file_paths):
@@ -1067,15 +1094,10 @@ def tcm_get_download_urls(tcm_uri, session_token, tenant_id, site_id, file_paths
         print(f"DEBUG: Posting to get download URLs: {url}")
         print(f"DEBUG: Sending {len(file_paths)} original file paths")
         print(f"DEBUG: Processed {len(processed_paths)} file paths for POST")
-        print(f"DEBUG: First few processed paths: {processed_paths[:3] if len(processed_paths) > 3 else processed_paths}")
         
-        response = requests.post(url, headers=headers, json=payload, verify=True)
+        response = requests.post(url, headers=headers, json=payload, verify=True, timeout=60)
         
         print(f"DEBUG: Get URLs response status: {response.status_code}")
-        print(f"DEBUG: Get URLs response length: {len(response.text)} characters")
-        # Don't truncate - we need to see how many files we get back
-        response_text = response.text
-        print(f"DEBUG: Get URLs full response: {response_text}")
         
         if response.status_code in [200, 201, 202]:
             response_data = response.json()
@@ -2695,7 +2717,13 @@ def tcm_activity_logs():
         
         file_paths = paths_result['file_paths']
         page_count = paths_result.get('page_count', 1)
-        results.append({'success': True, 'message': f'✅ Found {len(file_paths)} log file path(s) across {page_count} page(s)'})
+        is_partial = paths_result.get('partial', False)
+        
+        if is_partial:
+            results.append({'success': True, 'message': f'⚠️  Partial results: Found {len(file_paths)} log file path(s) across {page_count} page(s) (request timed out)'})
+            results.append({'success': True, 'message': f'ℹ️  Consider using a shorter date range for complete results'})
+        else:
+            results.append({'success': True, 'message': f'✅ Found {len(file_paths)} log file path(s) across {page_count} page(s)'})
         
         if not file_paths:
             results.append({'success': True, 'message': '⚠️  No log files found for the specified date range'})
