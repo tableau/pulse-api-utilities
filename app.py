@@ -2582,7 +2582,12 @@ def tcm_activity_logs():
         tcm_uri = data.get('tcm_uri', '').rstrip('/')
         pat_token = data.get('pat_token', '').strip()
         site_luid = data.get('site_luid', '').strip()
-        days_back = int(data.get('days_back', 14))
+        days_back = int(data.get('days_back', 7))
+        
+        # TCM API only allows 7 days max
+        if days_back > 7:
+            days_back = 7
+            results.append({'success': True, 'message': '⚠️  Note: TCM API limit is 7 days, adjusting request'})
         
         # Validate required fields
         if not all([tcm_uri, pat_token, site_luid]):
