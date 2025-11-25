@@ -947,9 +947,8 @@ def tcm_login(tcm_uri, pat_token):
         print(f"DEBUG: Exception during TCM login: {tb}")
         return {'success': False, 'error': f"Error during TCM login: {str(e)}", 'traceback': tb}
 
-def tcm_request_activity_logs(tcm_uri, session_token, tenant_id, site_id, start_time, end_time):
-    """Request activity log generation for a specific time range."""
-    # Use query parameters, not POST body
+def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start_time, end_time):
+    """Get list of activity log file paths - Step 1: GET request."""
     url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/sites/{site_id}/activitylog?startTime={start_time}&endTime={end_time}"
     
     headers = {
@@ -958,39 +957,13 @@ def tcm_request_activity_logs(tcm_uri, session_token, tenant_id, site_id, start_
     }
     
     try:
-        print(f"DEBUG: Requesting activity logs from: {url}")
+        print(f"DEBUG: Getting activity log paths from: {url}")
         print(f"DEBUG: Headers: {{'x-tableau-session-token': '***REDACTED***', 'Accept': 'application/json'}}")
         
-        # GET request with query parameters
         response = requests.get(url, headers=headers, verify=True)
         
-        print(f"DEBUG: Activity log request response status: {response.status_code}")
-        print(f"DEBUG: Activity log request response: {response.text}")
-        
-        if response.status_code in [200, 201, 202]:
-            return {'success': True, 'data': response.json()}
-        else:
-            return {
-                'success': False,
-                'error': f"Request failed. Status: {response.status_code}",
-                'response': response.text
-            }
-    except Exception as e:
-        tb = traceback.format_exc()
-        print(f"DEBUG: Exception requesting activity logs: {tb}")
-        return {'success': False, 'error': f"Error requesting activity logs: {str(e)}"}
-
-def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start_time, end_time):
-    """Get list of activity log file paths."""
-    url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/sites/{site_id}/activitylog?startTime={start_time}&endTime={end_time}"
-    
-    headers = {
-        'x-tableau-session-token': session_token,
-        'Accept': 'application/json'
-    }
-    
-    try:
-        response = requests.get(url, headers=headers, verify=True)
+        print(f"DEBUG: Get paths response status: {response.status_code}")
+        print(f"DEBUG: Get paths response: {response.text[:500]}...")  # First 500 chars
         
         if response.status_code == 200:
             response_data = response.json()
@@ -1009,22 +982,75 @@ def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start
                 'response': response.text
             }
     except Exception as e:
+        tb = traceback.format_exc()
+        print(f"DEBUG: Exception getting paths: {tb}")
         return {'success': False, 'error': f"Error getting activity log paths: {str(e)}"}
 
-def tcm_download_log_file(tcm_uri, session_token, file_path):
-    """Download a single activity log file."""
-    # File path might be absolute or relative
-    if file_path.startswith('http'):
-        url = file_path
-    else:
-        url = f"{tcm_uri}{file_path}"
+def tcm_get_download_urls(tcm_uri, session_token, tenant_id, file_paths):
+    """Get download URLs for activity log files - Step 2: POST request."""
+    url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/sites/{file_paths[0].split('siteLuid=')[1].split('/')[0] if file_paths else 'unknown'}/activitylog"
     
+    # Extract site ID from first file path if available
+    # File paths look like: pod=prod-uswest-c/siteLuid=7a8b5530.../...
+    site_id = None
+    if file_paths:
+        for part in file_paths[0].split('/'):
+            if part.startswith('siteLuid='):
+                site_id = part.replace('siteLuid=', '')
+                break
+    
+    if site_id:
+        url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/sites/{site_id}/activitylog"
+    else:
+        # Fallback - this shouldn't happen
+        url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/activitylog"
+    
+    headers = {
+        'x-tableau-session-token': session_token,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    }
+    
+    payload = {
+        'tenantId': tenant_id,
+        'files': file_paths
+    }
+    
+    try:
+        print(f"DEBUG: Posting to get download URLs: {url}")
+        print(f"DEBUG: Payload has {len(file_paths)} file paths")
+        
+        response = requests.post(url, headers=headers, json=payload, verify=True)
+        
+        print(f"DEBUG: Get URLs response status: {response.status_code}")
+        print(f"DEBUG: Get URLs response: {response.text[:500]}...")  # First 500 chars
+        
+        if response.status_code in [200, 201, 202]:
+            response_data = response.json()
+            # Response should contain 'url' key with download URLs
+            return {
+                'success': True,
+                'data': response_data
+            }
+        else:
+            return {
+                'success': False,
+                'error': f"Failed to get download URLs. Status: {response.status_code}",
+                'response': response.text
+            }
+    except Exception as e:
+        tb = traceback.format_exc()
+        print(f"DEBUG: Exception getting download URLs: {tb}")
+        return {'success': False, 'error': f"Error getting download URLs: {str(e)}"}
+
+def tcm_download_log_file(download_url, session_token):
+    """Download a single activity log file - Step 3: Download from URL."""
     headers = {
         'x-tableau-session-token': session_token
     }
     
     try:
-        response = requests.get(url, headers=headers, verify=True, stream=True)
+        response = requests.get(download_url, headers=headers, verify=True, stream=True)
         
         if response.status_code == 200:
             # Return the content as text
@@ -2595,21 +2621,7 @@ def tcm_activity_logs():
         
         results.append({'success': True, 'message': f'✅ Authentication successful! Tenant ID: {tenant_id}'})
         
-        # Step 2: Request activity log generation
-        results.append({'success': True, 'message': '📝 Requesting activity log generation...'})
-        
-        request_result = tcm_request_activity_logs(tcm_uri, session_token, tenant_id, site_luid, start_time_str, end_time_str)
-        
-        if not request_result['success']:
-            return jsonify({
-                'success': False,
-                'error': f"Failed to request activity logs: {request_result['error']}",
-                'response': request_result.get('response', '')
-            })
-        
-        results.append({'success': True, 'message': '✅ Activity log generation requested'})
-        
-        # Step 3: Get list of log file paths
+        # Step 2: Get list of log file paths (GET request)
         results.append({'success': True, 'message': '📂 Retrieving activity log file paths...'})
         
         paths_result = tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_luid, start_time_str, end_time_str)
@@ -2639,38 +2651,49 @@ def tcm_activity_logs():
                 'combined_logs': ''
             })
         
-        # Step 4: Download all log files
-        results.append({'success': True, 'message': f'\n📥 Downloading {len(file_paths)} log file(s)...'})
+        # Step 3: Get download URLs (POST request with file paths)
+        results.append({'success': True, 'message': f'🔗 Getting download URL for {len(file_paths)} file(s)...'})
         
-        all_logs = []
-        downloaded_count = 0
+        urls_result = tcm_get_download_urls(tcm_uri, session_token, tenant_id, file_paths)
+        
+        if not urls_result['success']:
+            return jsonify({
+                'success': False,
+                'error': f"Failed to get download URLs: {urls_result['error']}",
+                'response': urls_result.get('response', '')
+            })
+        
+        # The response should have a 'url' key with the download URL
+        response_data = urls_result['data']
+        download_url = response_data.get('url')
+        
+        if not download_url:
+            return jsonify({
+                'success': False,
+                'error': 'No download URL found in response',
+                'response': json.dumps(response_data)
+            })
+        
+        results.append({'success': True, 'message': f'✅ Got download URL'})
+        
+        # Step 4: Download the combined log file
+        results.append({'success': True, 'message': f'⬇️  Downloading activity logs...'})
+        
+        download_result = tcm_download_log_file(download_url, session_token)
+        
+        if not download_result['success']:
+            return jsonify({
+                'success': False,
+                'error': f"Failed to download logs: {download_result['error']}",
+                'response': download_result.get('response', '')
+            })
+        
+        combined_logs = download_result['content']
+        results.append({'success': True, 'message': f'✅ Successfully downloaded activity logs'})
+        
+        # Add file path information
+        downloaded_count = len(file_paths)
         failed_count = 0
-        
-        for i, file_path in enumerate(file_paths, 1):
-            results.append({'success': True, 'message': f'  [{i}/{len(file_paths)}] Downloading: {file_path}'})
-            
-            download_result = tcm_download_log_file(tcm_uri, session_token, file_path)
-            
-            if download_result['success']:
-                log_content = download_result['content']
-                all_logs.append(f"\n{'='*80}\n")
-                all_logs.append(f"LOG FILE: {file_path}\n")
-                all_logs.append(f"{'='*80}\n")
-                all_logs.append(log_content)
-                all_logs.append("\n")
-                
-                # Log a preview of the content
-                print(f"DEBUG: Downloaded log file {i}/{len(file_paths)}: {file_path}")
-                print(f"DEBUG: Content preview (first 500 chars): {log_content[:500]}")
-                
-                downloaded_count += 1
-                results.append({'success': True, 'message': f'  ✅ Downloaded successfully'})
-            else:
-                failed_count += 1
-                results.append({'success': False, 'message': f'  ❌ Failed: {download_result["error"]}'})
-        
-        # Combine all logs
-        combined_logs = ''.join(all_logs)
         
         # Log the combined output (truncated for console)
         print(f"\n{'='*100}")
