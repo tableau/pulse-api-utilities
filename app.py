@@ -908,7 +908,19 @@ def tcm_login(tcm_uri, pat_token):
     }
     
     try:
+        print(f"DEBUG: Attempting TCM login to: {url}")
+        print(f"DEBUG: Payload: {json.dumps({'pat': '***REDACTED***'})}")
+        
         response = requests.post(url, headers=headers, json=payload, verify=True)
+        
+        print(f"DEBUG: TCM login response status: {response.status_code}")
+        print(f"DEBUG: TCM login response headers: {dict(response.headers)}")
+        
+        try:
+            response_json = response.json()
+            print(f"DEBUG: TCM login response body: {json.dumps(response_json, indent=2)}")
+        except:
+            print(f"DEBUG: TCM login response body (not JSON): {response.text}")
         
         if response.status_code == 200:
             response_data = response.json()
@@ -916,13 +928,14 @@ def tcm_login(tcm_uri, pat_token):
             tenant_id = response_data.get('tenantId')
             
             if session_token and tenant_id:
+                print(f"DEBUG: Successfully got session token and tenant_id: {tenant_id}")
                 return {
                     'success': True,
                     'session_token': session_token,
                     'tenant_id': tenant_id
                 }
             else:
-                return {'success': False, 'error': 'Missing sessionToken or tenantId in response'}
+                return {'success': False, 'error': 'Missing sessionToken or tenantId in response', 'response': response.text}
         else:
             return {
                 'success': False,
@@ -930,7 +943,9 @@ def tcm_login(tcm_uri, pat_token):
                 'response': response.text
             }
     except Exception as e:
-        return {'success': False, 'error': f"Error during TCM login: {str(e)}"}
+        tb = traceback.format_exc()
+        print(f"DEBUG: Exception during TCM login: {tb}")
+        return {'success': False, 'error': f"Error during TCM login: {str(e)}", 'traceback': tb}
 
 def tcm_request_activity_logs(tcm_uri, session_token, tenant_id, site_id, start_time, end_time):
     """Request activity log generation for a specific time range."""
