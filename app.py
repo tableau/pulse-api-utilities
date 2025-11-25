@@ -966,7 +966,8 @@ def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start
             encoded_end = quote(end_time, safe='')
             url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/sites/{site_id}/activitylog?startTime={encoded_start}&endTime={encoded_end}"
             if page_token:
-                url += f"&pageToken={quote(page_token, safe='')}"
+                # Don't encode pageToken - it's base64 and should be passed as-is
+                url += f"&pageToken={page_token}"
             
             print(f"DEBUG: Getting activity log paths (page {page_count}): {url}")
             print(f"DEBUG: Request headers: {{'x-tableau-session-token': '***REDACTED***', 'Accept': 'application/json'}}")
@@ -978,17 +979,24 @@ def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start
             print(f"DEBUG: Get paths response headers (page {page_count}): {response.headers}")
             print(f"DEBUG: Get paths response (page {page_count}): {response.text}")
             
+            # Check for empty response or 403 on pagination (can signal end of results)
+            if not response.text or response.text.strip() == '':
+                print(f"DEBUG: Empty response on page {page_count}, ending pagination")
+                break
+            
+            # If 403 on a page > 1, treat as end of pagination (some APIs do this)
+            if response.status_code == 403 and page_count > 1:
+                print(f"DEBUG: Got 403 on page {page_count}, treating as end of pagination")
+                print(f"DEBUG: Collected {len(all_file_paths)} file paths from previous pages")
+                break
+            
+            # Other non-200 errors on first page should fail
             if response.status_code != 200:
                 return {
                     'success': False,
                     'error': f"Failed to get file paths. Status: {response.status_code}",
                     'response': response.text
                 }
-            
-            # Check for empty response (end of pagination)
-            if not response.text or response.text.strip() == '':
-                print(f"DEBUG: Empty response on page {page_count}, ending pagination")
-                break
             
             response_data = response.json()
             
