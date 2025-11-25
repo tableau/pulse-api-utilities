@@ -1256,8 +1256,8 @@
                         <small>💡 The LUID of the Tableau site you want to fetch logs for</small>
                     </div>
                     <div class="form-row">
-                        <input type="number" id="tcm_days_back" name="days_back" value="14" min="1" max="14" required>
-                        <small>💡 Number of days to look back for metric_subscription_change logs (max: 14 days, split into 7-day chunks)</small>
+                        <input type="text" id="tcm_date_range" value="October 1-14, 2025" readonly style="background-color: #f5f5f5; cursor: not-allowed;">
+                        <small>💡 Fetches metric_subscription_change logs for this specific date range (split into 7-day chunks)</small>
                     </div>
                 </div>
 

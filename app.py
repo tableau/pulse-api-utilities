@@ -2668,8 +2668,11 @@ def tcm_activity_logs():
         tcm_uri = data.get('tcm_uri', '').rstrip('/')
         pat_token = data.get('pat_token', '').strip()
         site_luid = data.get('site_luid', '').strip()
-        days_back = int(data.get('days_back', 14))
         event_type = 'metric_subscription_change'  # Hardcoded filter
+        
+        # Hardcoded date range: October 1-14, 2025
+        target_start_date = datetime(2025, 10, 1, 0, 0, 0)
+        target_end_date = datetime(2025, 10, 14, 23, 59, 59)
         
         # Validate required fields
         if not all([tcm_uri, pat_token, site_luid]):
@@ -2680,7 +2683,7 @@ def tcm_activity_logs():
         
         results.append({'success': True, 'message': f'🚀 Starting Tableau Cloud Manager activity log retrieval...'})
         results.append({'success': True, 'message': f'📊 Site LUID: {site_luid}'})
-        results.append({'success': True, 'message': f'📅 Fetching metric_subscription_change logs for last {days_back} days'})
+        results.append({'success': True, 'message': f'📅 Fetching logs: October 1-14, 2025'})
         results.append({'success': True, 'message': f'🔍 Event type filter: {event_type}'})
         
         # Step 1: Login to TCM
@@ -2701,23 +2704,20 @@ def tcm_activity_logs():
         results.append({'success': True, 'message': f'✅ Authentication successful! Tenant ID: {tenant_id}'})
         
         # Step 2: Split into 7-day chunks (TCM API limit)
-        end_time = datetime.utcnow()
-        
-        # Calculate date ranges - split 14 days into two 7-day chunks
-        date_ranges = []
-        remaining_days = days_back
-        current_end = end_time
-        
-        while remaining_days > 0:
-            chunk_days = min(remaining_days, 7)
-            chunk_start = current_end - timedelta(days=chunk_days)
-            date_ranges.append({
-                'start': chunk_start.strftime('%Y-%m-%dT%H:%M:%S'),
-                'end': current_end.strftime('%Y-%m-%dT%H:%M:%S'),
-                'days': chunk_days
-            })
-            current_end = chunk_start
-            remaining_days -= chunk_days
+        # Chunk 1: Oct 1-7, 2025
+        # Chunk 2: Oct 8-14, 2025
+        date_ranges = [
+            {
+                'start': '2025-10-01T00:00:00',
+                'end': '2025-10-07T23:59:59',
+                'label': 'Oct 1-7, 2025'
+            },
+            {
+                'start': '2025-10-08T00:00:00',
+                'end': '2025-10-14T23:59:59',
+                'label': 'Oct 8-14, 2025'
+            }
+        ]
         
         results.append({'success': True, 'message': f'📅 Split into {len(date_ranges)} date range(s) (7-day API limit)'})
         
@@ -2725,7 +2725,7 @@ def tcm_activity_logs():
         all_file_paths = []
         
         for i, date_range in enumerate(date_ranges, 1):
-            results.append({'success': True, 'message': f'📂 Range {i}/{len(date_ranges)}: {date_range["start"]} to {date_range["end"]}'})
+            results.append({'success': True, 'message': f'📂 Range {i}/{len(date_ranges)}: {date_range["label"]}'})
             
             paths_result = tcm_get_activity_log_paths(
                 tcm_uri, session_token, tenant_id, site_luid, 
@@ -2819,14 +2819,14 @@ def tcm_activity_logs():
         
         # Step 6: Save to local file
         timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
-        output_filename = f"tcm_metric_subscription_logs_{site_luid}_{timestamp}.txt"
+        output_filename = f"tcm_metric_subscription_logs_Oct1-14-2025_{site_luid}_{timestamp}.txt"
         output_path = os.path.join(os.path.dirname(__file__), output_filename)
         
         try:
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(f"TABLEAU CLOUD MANAGER - METRIC SUBSCRIPTION CHANGE LOGS\n")
                 f.write(f"Site LUID: {site_luid}\n")
-                f.write(f"Days back: {days_back}\n")
+                f.write(f"Date Range: October 1-14, 2025\n")
                 f.write(f"Event type: {event_type}\n")
                 f.write(f"Total Files Downloaded: {downloaded_count}\n")
                 f.write(f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC\n")
@@ -2847,7 +2847,7 @@ def tcm_activity_logs():
         if failed_count > 0:
             results.append({'success': True, 'message': f'❌ Failed: {failed_count} file(s)'})
         results.append({'success': True, 'message': f'📊 Total log size: {len(combined_logs):,} characters'})
-        results.append({'success': True, 'message': f'📅 Days covered: {days_back}'})
+        results.append({'success': True, 'message': f'📅 Date range: October 1-14, 2025'})
         results.append({'success': True, 'message': f'🔍 Event type: {event_type}'})
         
         summary = f"Successfully downloaded {downloaded_count} metric_subscription_change log file(s)"
