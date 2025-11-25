@@ -985,6 +985,11 @@ def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start
                     'response': response.text
                 }
             
+            # Check for empty response (end of pagination)
+            if not response.text or response.text.strip() == '':
+                print(f"DEBUG: Empty response on page {page_count}, ending pagination")
+                break
+            
             response_data = response.json()
             
             # The response should contain file paths
