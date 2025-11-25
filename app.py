@@ -7,7 +7,7 @@ import traceback
 import copy
 import csv
 import io
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 
@@ -961,17 +961,22 @@ def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start
     try:
         while True:
             page_count += 1
-            # Build URL with pagination token if available
-            url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/sites/{site_id}/activitylog?startTime={start_time}&endTime={end_time}"
+            # Build URL with pagination token if available - URL encode the datetime strings
+            encoded_start = quote(start_time, safe='')
+            encoded_end = quote(end_time, safe='')
+            url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/sites/{site_id}/activitylog?startTime={encoded_start}&endTime={encoded_end}"
             if page_token:
-                url += f"&pageToken={page_token}"
+                url += f"&pageToken={quote(page_token, safe='')}"
             
             print(f"DEBUG: Getting activity log paths (page {page_count}): {url}")
+            print(f"DEBUG: Request headers: {{'x-tableau-session-token': '***REDACTED***', 'Accept': 'application/json'}}")
+            print(f"DEBUG: Session token length: {len(session_token) if session_token else 0}")
             
             response = requests.get(url, headers=headers, verify=True)
             
             print(f"DEBUG: Get paths response status (page {page_count}): {response.status_code}")
-            print(f"DEBUG: Get paths response (page {page_count}): {response.text[:500]}...")  # First 500 chars
+            print(f"DEBUG: Get paths response headers (page {page_count}): {response.headers}")
+            print(f"DEBUG: Get paths response (page {page_count}): {response.text}")
             
             if response.status_code != 200:
                 return {
