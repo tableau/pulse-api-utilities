@@ -2958,26 +2958,57 @@ def tcm_activity_logs():
             
             results.append({'success': True, 'message': f'  ✅ Tableau authentication successful'})
             
-            # Get all users to build LUID -> username map
+            # Get all users to build LUID -> username map (with pagination)
             results.append({'success': True, 'message': '  📋 Fetching users...'})
             try:
-                users_url = f"{tableau_server}/api/{api_version}/sites/{site_id_returned}/users?pageSize=1000"
-                users_response = requests.get(users_url, headers={'X-Tableau-Auth': auth_token}, verify=True, timeout=30)
-                
                 user_name_map = {}
-                if users_response.status_code == 200:
-                    users_data = ET.fromstring(users_response.content)
-                    for user in users_data.findall('.//t:user', {'t': 'http://tableau.com/api'}):
-                        user_luid = user.get('id')
-                        username = user.get('name')
-                        if user_luid and username:
-                            user_name_map[user_luid] = username
-                    results.append({'success': True, 'message': f'  ✅ Found {len(user_name_map)} users'})
-                    print(f"DEBUG: User map sample (first 3): {list(user_name_map.items())[:3]}")
-                else:
-                    results.append({'success': False, 'message': f'  ⚠️  Failed to fetch users: {users_response.status_code}'})
-                    print(f"DEBUG: Users response: {users_response.text[:500]}")
-                    user_name_map = {}
+                page_number = 1
+                page_size = 1000
+                
+                while True:
+                    users_url = f"{tableau_server}/api/{api_version}/sites/{site_id_returned}/users?pageSize={page_size}&pageNumber={page_number}"
+                    users_response = requests.get(users_url, headers={'X-Tableau-Auth': auth_token}, verify=True, timeout=30)
+                    
+                    if users_response.status_code == 200:
+                        users_data = ET.fromstring(users_response.content)
+                        
+                        # Get pagination info
+                        pagination = users_data.find('.//{http://tableau.com/api}pagination')
+                        total_available = int(pagination.get('totalAvailable', 0)) if pagination is not None else 0
+                        
+                        users_on_page = 0
+                        for user in users_data.findall('.//t:user', {'t': 'http://tableau.com/api'}):
+                            user_luid = user.get('id')
+                            username = user.get('name')
+                            if user_luid and username:
+                                user_name_map[user_luid] = username
+                                users_on_page += 1
+                        
+                        if page_number == 1:
+                            print(f"DEBUG: Total users available: {total_available}")
+                        
+                        # Check if we need more pages
+                        if len(user_name_map) >= total_available or users_on_page < page_size:
+                            break
+                        
+                        page_number += 1
+                    else:
+                        if page_number == 1:
+                            results.append({'success': False, 'message': f'  ⚠️  Failed to fetch users: {users_response.status_code}'})
+                            print(f"DEBUG: Users response: {users_response.text[:500]}")
+                        break
+                
+                results.append({'success': True, 'message': f'  ✅ Found {len(user_name_map)} users'})
+                print(f"DEBUG: User map sample (first 3): {list(user_name_map.items())[:3]}")
+                
+                # Check specific missing users
+                missing_luids = ['9c6289dd-2976-4398-b2fa-df752353975a', 'c3ea5aef-2b41-4e18-b0c4-ee309f9bf88a', 'e25e08e1-e9f5-4938-9be4-37aac23ed358']
+                for luid in missing_luids:
+                    if luid in user_name_map:
+                        print(f"DEBUG: Found user {luid}: {user_name_map[luid]}")
+                    else:
+                        print(f"DEBUG: User {luid} not in site's user list (may be from different site or deleted)")
+                
             except Exception as e:
                 results.append({'success': False, 'message': f'  ⚠️  Error fetching users: {str(e)}'})
                 user_name_map = {}
