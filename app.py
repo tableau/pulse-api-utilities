@@ -1001,6 +1001,9 @@ def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start
             
             response_data = response.json()
             
+            print(f"DEBUG: Response keys on page {page_count}: {response_data.keys()}")
+            print(f"DEBUG: Full response data on page {page_count}: {json.dumps(response_data, indent=2)}")
+            
             # The response should contain file paths
             file_paths = response_data.get('filePaths', []) or response_data.get('files', []) or response_data.get('paths', [])
             
@@ -1062,12 +1065,17 @@ def tcm_get_download_urls(tcm_uri, session_token, tenant_id, site_id, file_paths
     
     try:
         print(f"DEBUG: Posting to get download URLs: {url}")
-        print(f"DEBUG: Payload has {len(file_paths)} file paths")
+        print(f"DEBUG: Sending {len(file_paths)} original file paths")
+        print(f"DEBUG: Processed {len(processed_paths)} file paths for POST")
+        print(f"DEBUG: First few processed paths: {processed_paths[:3] if len(processed_paths) > 3 else processed_paths}")
         
         response = requests.post(url, headers=headers, json=payload, verify=True)
         
         print(f"DEBUG: Get URLs response status: {response.status_code}")
-        print(f"DEBUG: Get URLs response: {response.text[:500]}...")  # First 500 chars
+        print(f"DEBUG: Get URLs response length: {len(response.text)} characters")
+        # Don't truncate - we need to see how many files we get back
+        response_text = response.text
+        print(f"DEBUG: Get URLs full response: {response_text}")
         
         if response.status_code in [200, 201, 202]:
             response_data = response.json()
@@ -2648,6 +2656,11 @@ def tcm_activity_logs():
         
         start_time_str = start_time.strftime('%Y-%m-%dT%H:%M:%S')
         end_time_str = end_time.strftime('%Y-%m-%dT%H:%M:%S')
+        
+        print(f"DEBUG: Calculated date range:")
+        print(f"DEBUG:   Start: {start_time_str}")
+        print(f"DEBUG:   End: {end_time_str}")
+        print(f"DEBUG:   Days back: {days_back}")
         
         results.append({'success': True, 'message': f'📅 Date range: {start_time_str} to {end_time_str}'})
         
