@@ -948,7 +948,7 @@ def tcm_login(tcm_uri, pat_token):
         print(f"DEBUG: Exception during TCM login: {tb}")
         return {'success': False, 'error': f"Error during TCM login: {str(e)}", 'traceback': tb}
 
-def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start_time, end_time, max_pages=100):
+def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start_time, end_time, max_pages=10):
     """Get list of activity log file paths - Step 1: GET request with pagination support."""
     all_file_paths = []
     page_token = None
@@ -963,10 +963,20 @@ def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start
         while True:
             page_count += 1
             
-            # Safety limit to prevent infinite loops
+            # Safety limit to prevent timeouts
             if page_count > max_pages:
                 print(f"WARNING: Reached max pages limit ({max_pages}), stopping pagination")
-                break
+                print(f"WARNING: Collected {len(all_file_paths)} file paths so far")
+                print(f"WARNING: Use a shorter date range to get complete results")
+                # Mark as partial and return what we have
+                return {
+                    'success': True,
+                    'file_paths': all_file_paths,
+                    'raw_response': {'partial': True, 'message': f'Stopped at page limit ({max_pages})'},
+                    'page_count': page_count,
+                    'partial': True,
+                    'hit_limit': True
+                }
             
             # Build URL with pagination token if available - URL encode the datetime strings
             encoded_start = quote(start_time, safe='')
@@ -2718,10 +2728,16 @@ def tcm_activity_logs():
         file_paths = paths_result['file_paths']
         page_count = paths_result.get('page_count', 1)
         is_partial = paths_result.get('partial', False)
+        hit_limit = paths_result.get('hit_limit', False)
         
         if is_partial:
-            results.append({'success': True, 'message': f'⚠️  Partial results: Found {len(file_paths)} log file path(s) across {page_count} page(s) (request timed out)'})
-            results.append({'success': True, 'message': f'ℹ️  Consider using a shorter date range for complete results'})
+            if hit_limit:
+                results.append({'success': True, 'message': f'⚠️  Partial results: Found {len(file_paths)} log file path(s) across {page_count} page(s)'})
+                results.append({'success': True, 'message': f'ℹ️  Stopped at page limit to prevent timeout'})
+                results.append({'success': True, 'message': f'💡 Use a shorter date range (2-3 days) to get more files'})
+            else:
+                results.append({'success': True, 'message': f'⚠️  Partial results: Found {len(file_paths)} log file path(s) across {page_count} page(s) (request timed out)'})
+                results.append({'success': True, 'message': f'💡 Use a shorter date range for complete results'})
         else:
             results.append({'success': True, 'message': f'✅ Found {len(file_paths)} log file path(s) across {page_count} page(s)'})
         
@@ -2775,7 +2791,10 @@ def tcm_activity_logs():
                 'days_back': days_back,
                 'total_files': len(file_paths),
                 'page_count': page_count,
-                'generated_at': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S') + ' UTC'
+                'is_partial': is_partial,
+                'hit_page_limit': hit_limit,
+                'generated_at': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S') + ' UTC',
+                'note': 'Partial results - use shorter date range for complete data' if is_partial else 'Complete results'
             },
             'event_type_summary': {
                 event_type: len(files) 
@@ -2819,9 +2838,11 @@ def tcm_activity_logs():
         results.append({'success': True, 'message': '\n📊 SUMMARY'})
         results.append({'success': True, 'message': '=' * 60})
         results.append({'success': True, 'message': f'📁 Total file paths: {len(file_paths)}'})
-        results.append({'success': True, 'message': f'📄 Pages retrieved: {page_count}'})
+        results.append({'success': True, 'message': f'📄 Pages retrieved: {page_count}{" (partial)" if is_partial else ""}'})
         results.append({'success': True, 'message': f'🏷️  Event types: {len(files_by_event_type)}'})
         results.append({'success': True, 'message': f'📅 Date range: {start_time_str} to {end_time_str}'})
+        if is_partial:
+            results.append({'success': True, 'message': f'⚠️  Note: Results are incomplete - reduce date range for more'})
         
         # Show top event types
         results.append({'success': True, 'message': '\n🏷️  TOP EVENT TYPES:'})
