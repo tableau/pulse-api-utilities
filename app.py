@@ -948,8 +948,10 @@ def tcm_login(tcm_uri, pat_token):
         return {'success': False, 'error': f"Error during TCM login: {str(e)}", 'traceback': tb}
 
 def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start_time, end_time):
-    """Get list of activity log file paths - Step 1: GET request."""
-    url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/sites/{site_id}/activitylog?startTime={start_time}&endTime={end_time}"
+    """Get list of activity log file paths - Step 1: GET request with pagination support."""
+    all_file_paths = []
+    page_token = None
+    page_count = 0
     
     headers = {
         'x-tableau-session-token': session_token,
@@ -957,53 +959,61 @@ def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start
     }
     
     try:
-        print(f"DEBUG: Getting activity log paths from: {url}")
-        print(f"DEBUG: Headers: {{'x-tableau-session-token': '***REDACTED***', 'Accept': 'application/json'}}")
-        
-        response = requests.get(url, headers=headers, verify=True)
-        
-        print(f"DEBUG: Get paths response status: {response.status_code}")
-        print(f"DEBUG: Get paths response: {response.text[:500]}...")  # First 500 chars
-        
-        if response.status_code == 200:
+        while True:
+            page_count += 1
+            # Build URL with pagination token if available
+            url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/sites/{site_id}/activitylog?startTime={start_time}&endTime={end_time}"
+            if page_token:
+                url += f"&pageToken={page_token}"
+            
+            print(f"DEBUG: Getting activity log paths (page {page_count}): {url}")
+            
+            response = requests.get(url, headers=headers, verify=True)
+            
+            print(f"DEBUG: Get paths response status (page {page_count}): {response.status_code}")
+            print(f"DEBUG: Get paths response (page {page_count}): {response.text[:500]}...")  # First 500 chars
+            
+            if response.status_code != 200:
+                return {
+                    'success': False,
+                    'error': f"Failed to get file paths. Status: {response.status_code}",
+                    'response': response.text
+                }
+            
             response_data = response.json()
+            
             # The response should contain file paths
             file_paths = response_data.get('filePaths', []) or response_data.get('files', []) or response_data.get('paths', [])
             
-            return {
-                'success': True,
-                'file_paths': file_paths,
-                'raw_response': response_data
-            }
-        else:
-            return {
-                'success': False,
-                'error': f"Failed to get file paths. Status: {response.status_code}",
-                'response': response.text
-            }
+            print(f"DEBUG: File paths on page {page_count}: {len(file_paths)}")
+            if file_paths:
+                print(f"DEBUG: First file path type: {type(file_paths[0])}")
+                print(f"DEBUG: First file path: {file_paths[0]}")
+            
+            all_file_paths.extend(file_paths)
+            
+            # Check for pagination token
+            page_token = response_data.get('pageToken')
+            if not page_token:
+                print(f"DEBUG: No more pages, total file paths: {len(all_file_paths)}")
+                break
+            
+            print(f"DEBUG: More pages available, continuing...")
+        
+        return {
+            'success': True,
+            'file_paths': all_file_paths,
+            'raw_response': response_data,  # Last page response
+            'page_count': page_count
+        }
     except Exception as e:
         tb = traceback.format_exc()
         print(f"DEBUG: Exception getting paths: {tb}")
         return {'success': False, 'error': f"Error getting activity log paths: {str(e)}"}
 
-def tcm_get_download_urls(tcm_uri, session_token, tenant_id, file_paths):
+def tcm_get_download_urls(tcm_uri, session_token, tenant_id, site_id, file_paths):
     """Get download URLs for activity log files - Step 2: POST request."""
-    url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/sites/{file_paths[0].split('siteLuid=')[1].split('/')[0] if file_paths else 'unknown'}/activitylog"
-    
-    # Extract site ID from first file path if available
-    # File paths look like: pod=prod-uswest-c/siteLuid=7a8b5530.../...
-    site_id = None
-    if file_paths:
-        for part in file_paths[0].split('/'):
-            if part.startswith('siteLuid='):
-                site_id = part.replace('siteLuid=', '')
-                break
-    
-    if site_id:
-        url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/sites/{site_id}/activitylog"
-    else:
-        # Fallback - this shouldn't happen
-        url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/activitylog"
+    url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/sites/{site_id}/activitylog"
     
     headers = {
         'x-tableau-session-token': session_token,
@@ -1011,9 +1021,24 @@ def tcm_get_download_urls(tcm_uri, session_token, tenant_id, file_paths):
         'Accept': 'application/json'
     }
     
+    # If file_paths contains dicts with a 'path' or 'file' key, extract them
+    processed_paths = []
+    for fp in file_paths:
+        if isinstance(fp, dict):
+            # It's a dict, try to get the actual path
+            processed_paths.append(fp.get('path') or fp.get('file') or fp.get('filePath'))
+        else:
+            # It's already a string
+            processed_paths.append(fp)
+    
+    print(f"DEBUG: Original file_paths count: {len(file_paths)}")
+    print(f"DEBUG: Processed file_paths count: {len(processed_paths)}")
+    if processed_paths:
+        print(f"DEBUG: First processed path: {processed_paths[0]}")
+    
     payload = {
         'tenantId': tenant_id,
-        'files': file_paths
+        'files': processed_paths
     }
     
     try:
@@ -2659,7 +2684,7 @@ def tcm_activity_logs():
         # Step 3: Get download URLs (POST request with file paths)
         results.append({'success': True, 'message': f'🔗 Getting download URL for {len(file_paths)} file(s)...'})
         
-        urls_result = tcm_get_download_urls(tcm_uri, session_token, tenant_id, file_paths)
+        urls_result = tcm_get_download_urls(tcm_uri, session_token, tenant_id, site_luid, file_paths)
         
         if not urls_result['success']:
             return jsonify({
