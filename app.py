@@ -939,15 +939,31 @@ def publish_hyper_file(server_url, site_id, auth_token, project_name, datasource
         projects_data = ET.fromstring(projects_response.content)
         project_id = None
         
+        # Get all project names for debugging
+        all_projects = []
         for project in projects_data.findall('.//t:project', {'t': 'http://tableau.com/api'}):
-            if project.get('name') == project_name:
+            proj_name = project.get('name')
+            all_projects.append(proj_name)
+            # Try exact match first
+            if proj_name == project_name:
                 project_id = project.get('id')
                 break
         
+        # If no exact match, try case-insensitive and trimmed
         if not project_id:
+            project_name_lower = project_name.lower().strip()
+            for project in projects_data.findall('.//t:project', {'t': 'http://tableau.com/api'}):
+                proj_name = project.get('name')
+                if proj_name and proj_name.lower().strip() == project_name_lower:
+                    project_id = project.get('id')
+                    print(f"DEBUG: Found project with case-insensitive match: '{proj_name}'")
+                    break
+        
+        if not project_id:
+            print(f"DEBUG: Available projects: {all_projects}")
             return {
                 'success': False,
-                'error': f'Project "{project_name}" not found'
+                'error': f'Project "{project_name}" not found. Available projects: {", ".join(all_projects[:10])}'
             }
         
         # Step 2: Build multipart request
