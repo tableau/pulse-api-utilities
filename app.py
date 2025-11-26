@@ -2971,9 +2971,18 @@ def tcm_activity_logs():
         date_ranges = []
         current_start = target_start_date
         
-        while current_start < target_end_date:
-            # Each chunk is maximum 7 days
-            chunk_end = min(current_start + timedelta(days=7), target_end_date)
+        print(f"\nDEBUG: Splitting date range:")
+        print(f"DEBUG: Start: {target_start_date}")
+        print(f"DEBUG: End: {target_end_date}")
+        print(f"DEBUG: Total days: {(target_end_date - target_start_date).days}")
+        
+        while current_start <= target_end_date:
+            # Each chunk is maximum 7 days (but TCM counts inclusive, so use 6.999 days)
+            chunk_end = min(current_start + timedelta(days=6, hours=23, minutes=59, seconds=59), target_end_date)
+            
+            # Make sure we don't create an empty range
+            if chunk_end < current_start:
+                break
             
             date_ranges.append({
                 'start': current_start.strftime('%Y-%m-%dT%H:%M:%S'),
@@ -2981,7 +2990,11 @@ def tcm_activity_logs():
                 'label': f'{current_start.strftime("%b %d")} - {chunk_end.strftime("%b %d, %Y")}'
             })
             
-            current_start = chunk_end + timedelta(seconds=1)
+            print(f"DEBUG: Chunk: {current_start.strftime('%Y-%m-%d')} to {chunk_end.strftime('%Y-%m-%d')}")
+            
+            # Move to next chunk (start day after previous chunk ended)
+            current_start = chunk_end + timedelta(days=1)
+            current_start = current_start.replace(hour=0, minute=0, second=0)
         
         results.append({'success': True, 'message': f'📅 Split into {len(date_ranges)} date range(s) (7-day API limit)'})
         
