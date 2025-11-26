@@ -903,6 +903,133 @@ def update_pulse_preferences(server_url, auth_token, user_luid, preferences, cur
 # Tableau Hyper Extract Functions
 # ------------------------------
 
+def publish_hyper_file(server_url, site_id, auth_token, project_name, datasource_name, hyper_file_path, api_version='3.19'):
+    """
+    Publish a Hyper file as a datasource to Tableau Cloud/Server.
+    Based on: https://github.com/tableau/hyper-api-samples/tree/main/Community-Supported/publish-multi-table-hyper
+    
+    Args:
+        server_url: Tableau server URL
+        site_id: Site ID
+        auth_token: Authentication token
+        project_name: Project name where datasource will be published
+        datasource_name: Name for the published datasource
+        hyper_file_path: Path to the .hyper file
+        api_version: Tableau API version
+    
+    Returns:
+        dict: {'success': bool, 'datasource_id': str, 'error': str}
+    """
+    try:
+        # Step 1: Get project ID
+        projects_url = f"{server_url}/api/{api_version}/sites/{site_id}/projects"
+        projects_response = requests.get(
+            projects_url,
+            headers={'X-Tableau-Auth': auth_token},
+            verify=True,
+            timeout=30
+        )
+        
+        if projects_response.status_code != 200:
+            return {
+                'success': False,
+                'error': f'Failed to get projects: {projects_response.status_code}'
+            }
+        
+        projects_data = ET.fromstring(projects_response.content)
+        project_id = None
+        
+        for project in projects_data.findall('.//t:project', {'t': 'http://tableau.com/api'}):
+            if project.get('name') == project_name:
+                project_id = project.get('id')
+                break
+        
+        if not project_id:
+            return {
+                'success': False,
+                'error': f'Project "{project_name}" not found'
+            }
+        
+        # Step 2: Build multipart request
+        publish_url = f"{server_url}/api/{api_version}/sites/{site_id}/datasources"
+        
+        # Create the XML payload
+        xml_payload = f"""<?xml version='1.0' encoding='UTF-8'?>
+<tsRequest>
+    <datasource name='{datasource_name}'>
+        <project id='{project_id}' />
+    </datasource>
+</tsRequest>"""
+        
+        # Read the Hyper file
+        with open(hyper_file_path, 'rb') as f:
+            hyper_data = f.read()
+        
+        # Create multipart form data
+        boundary = '----WebKitFormBoundary7MA4YWxkTrZu0gW'
+        
+        body_parts = []
+        
+        # Part 1: XML payload
+        body_parts.append(f'--{boundary}'.encode())
+        body_parts.append(b'Content-Disposition: form-data; name="request_payload"')
+        body_parts.append(b'Content-Type: text/xml')
+        body_parts.append(b'')
+        body_parts.append(xml_payload.encode('utf-8'))
+        
+        # Part 2: Hyper file
+        body_parts.append(f'--{boundary}'.encode())
+        body_parts.append(f'Content-Disposition: form-data; name="tableau_datasource"; filename="{os.path.basename(hyper_file_path)}"'.encode())
+        body_parts.append(b'Content-Type: application/octet-stream')
+        body_parts.append(b'')
+        body_parts.append(hyper_data)
+        
+        # End boundary
+        body_parts.append(f'--{boundary}--'.encode())
+        
+        body = b'\r\n'.join(body_parts)
+        
+        # Step 3: Publish the datasource
+        headers = {
+            'X-Tableau-Auth': auth_token,
+            'Content-Type': f'multipart/mixed; boundary={boundary}'
+        }
+        
+        publish_response = requests.post(
+            publish_url,
+            data=body,
+            headers=headers,
+            verify=True,
+            timeout=120
+        )
+        
+        if publish_response.status_code in [200, 201]:
+            response_data = ET.fromstring(publish_response.content)
+            datasource = response_data.find('.//t:datasource', {'t': 'http://tableau.com/api'})
+            
+            if datasource is not None:
+                datasource_id = datasource.get('id')
+                datasource_web_url = datasource.find('.//t:webpageUrl', {'t': 'http://tableau.com/api'})
+                web_url = datasource_web_url.text if datasource_web_url is not None else None
+                
+                return {
+                    'success': True,
+                    'datasource_id': datasource_id,
+                    'web_url': web_url
+                }
+        
+        return {
+            'success': False,
+            'error': f'Publish failed: {publish_response.status_code} - {publish_response.text}'
+        }
+        
+    except Exception as e:
+        return {
+            'success': False,
+            'error': f'Failed to publish datasource: {str(e)}',
+            'traceback': traceback.format_exc()
+        }
+
 def create_hyper_extract_from_data(data_rows, column_definitions, output_path, table_name='Extract'):
     """
     Create a Tableau Hyper extract from data rows.
@@ -3350,6 +3477,73 @@ def tcm_activity_logs():
             results.append({'success': False, 'message': '\n⚠️  Hyper extracts skipped: tableauhyperapi not installed'})
             results.append({'success': True, 'message': '   Run: pip install tableauhyperapi'})
         
+        # Step 10: Publish datasources if requested
+        publish_datasources = data.get('publish_datasources') == 'on' or data.get('publish_datasources') == True
+        published_datasources = []
+        
+        if publish_datasources and hyper_files:
+            results.append({'success': True, 'message': '\n📤 Publishing datasources to Tableau Cloud...'})
+            
+            project_name = data.get('project_name', 'Default').strip()
+            datasource_prefix = data.get('datasource_prefix', 'TCM Activity').strip()
+            
+            # We already have auth from earlier steps
+            # auth_token, site_id_returned are from Tableau auth
+            
+            # Publish User Subscriptions datasource
+            if user_hyper_result.get('success'):
+                user_ds_name = f"{datasource_prefix} - User Subscriptions"
+                results.append({'success': True, 'message': f'  📊 Publishing: {user_ds_name}'})
+                
+                publish_result = publish_hyper_file(
+                    tableau_server,
+                    site_id_returned,
+                    auth_token,
+                    project_name,
+                    user_ds_name,
+                    user_hyper_path,
+                    api_version
+                )
+                
+                if publish_result['success']:
+                    published_datasources.append({
+                        'name': user_ds_name,
+                        'id': publish_result['datasource_id'],
+                        'url': publish_result.get('web_url')
+                    })
+                    results.append({'success': True, 'message': f'     ✅ Published successfully'})
+                    if publish_result.get('web_url'):
+                        results.append({'success': True, 'message': f'     🔗 {publish_result["web_url"]}'})
+                else:
+                    results.append({'success': False, 'message': f'     ❌ Failed: {publish_result["error"]}'})
+            
+            # Publish Metric Followers datasource
+            if metric_hyper_result.get('success'):
+                metric_ds_name = f"{datasource_prefix} - Metric Followers"
+                results.append({'success': True, 'message': f'  📊 Publishing: {metric_ds_name}'})
+                
+                publish_result = publish_hyper_file(
+                    tableau_server,
+                    site_id_returned,
+                    auth_token,
+                    project_name,
+                    metric_ds_name,
+                    metric_hyper_path,
+                    api_version
+                )
+                
+                if publish_result['success']:
+                    published_datasources.append({
+                        'name': metric_ds_name,
+                        'id': publish_result['datasource_id'],
+                        'url': publish_result.get('web_url')
+                    })
+                    results.append({'success': True, 'message': f'     ✅ Published successfully'})
+                    if publish_result.get('web_url'):
+                        results.append({'success': True, 'message': f'     🔗 {publish_result["web_url"]}'})
+                else:
+                    results.append({'success': False, 'message': f'     ❌ Failed: {publish_result["error"]}'})
+        
         # Step 11: Save combined logs to text file (optional, for debugging)
         output_filename = f"tcm_metric_subscription_logs_{date_file_label}_{site_luid}_{timestamp}.txt"
         output_path = os.path.join(os.path.dirname(__file__), output_filename)
@@ -3387,6 +3581,10 @@ def tcm_activity_logs():
             results.append({'success': True, 'message': f'   • Hyper extracts: {len(hyper_files)} file(s) created'})
             for hyper_file in hyper_files:
                 results.append({'success': True, 'message': f'     - {hyper_file}'})
+        if published_datasources:
+            results.append({'success': True, 'message': f'   • Published datasources: {len(published_datasources)}'})
+            for ds in published_datasources:
+                results.append({'success': True, 'message': f'     - {ds["name"]}'})
         results.append({'success': True, 'message': f'   • {len(user_report_data)} users analyzed'})
         results.append({'success': True, 'message': f'   • {len(metric_report_data)} metrics analyzed'})
         
@@ -3402,6 +3600,7 @@ def tcm_activity_logs():
             'failed_count': failed_count,
             'output_file': output_filename,
             'hyper_files': hyper_files,
+            'published_datasources': published_datasources,
             'events_analyzed': len(subscription_events),
             'unique_users': len(user_luids),
             'unique_metrics': len(metric_ids),

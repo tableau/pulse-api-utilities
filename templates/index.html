@@ -1300,6 +1300,30 @@
                     </div>
                 </div>
 
+                <!-- Publishing Options -->
+                <div class="form-section">
+                    <h3>📤 Publishing Options</h3>
+                    <div class="form-row">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="tcm_publish_datasources" name="publish_datasources" onchange="toggleTCMPublishOptions()">
+                            <span style="font-weight: 600;">Publish Hyper extracts as datasources to Tableau Cloud</span>
+                        </label>
+                        <small>💡 Automatically publish the generated Hyper files to your Tableau site</small>
+                    </div>
+                    
+                    <!-- Project selection (hidden by default) -->
+                    <div id="tcm_publish_options" style="display: none; margin-top: 15px; padding: 15px; background-color: #f9f9f9; border-radius: 4px;">
+                        <div class="form-row">
+                            <input type="text" id="tcm_project_name" name="project_name" placeholder="Project Name (e.g., Default)">
+                            <small>💡 The Tableau project where datasources will be published</small>
+                        </div>
+                        <div class="form-row">
+                            <input type="text" id="tcm_datasource_prefix" name="datasource_prefix" placeholder="Datasource Name Prefix (optional)" value="TCM Activity">
+                            <small>💡 Prefix for datasource names (e.g., "TCM Activity - User Subscriptions")</small>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="form-actions">
                     <button type="submit" class="button">📋 Fetch Activity Logs</button>
                     <button type="button" class="button secondary" onclick="showTab('home')">← Back to Home</button>
@@ -1354,6 +1378,19 @@
                 customDatesDiv.style.display = 'none';
                 document.getElementById('tcm_start_date').required = false;
                 document.getElementById('tcm_end_date').required = false;
+            }
+        }
+
+        function toggleTCMPublishOptions() {
+            const publishCheckbox = document.getElementById('tcm_publish_datasources');
+            const publishOptionsDiv = document.getElementById('tcm_publish_options');
+            
+            if (publishCheckbox.checked) {
+                publishOptionsDiv.style.display = 'block';
+                document.getElementById('tcm_project_name').required = true;
+            } else {
+                publishOptionsDiv.style.display = 'none';
+                document.getElementById('tcm_project_name').required = false;
             }
         }
 
