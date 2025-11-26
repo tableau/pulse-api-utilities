@@ -921,49 +921,89 @@ def publish_hyper_file(server_url, site_id, auth_token, project_name, datasource
         dict: {'success': bool, 'datasource_id': str, 'error': str}
     """
     try:
-        # Step 1: Get project ID
-        projects_url = f"{server_url}/api/{api_version}/sites/{site_id}/projects"
-        projects_response = requests.get(
-            projects_url,
-            headers={'X-Tableau-Auth': auth_token},
-            verify=True,
-            timeout=30
-        )
-        
-        if projects_response.status_code != 200:
-            return {
-                'success': False,
-                'error': f'Failed to get projects: {projects_response.status_code}'
-            }
-        
-        projects_data = ET.fromstring(projects_response.content)
-        project_id = None
-        
-        # Get all project names for debugging
+        # Step 1: Get ALL projects (including nested ones) with pagination
         all_projects = []
-        for project in projects_data.findall('.//t:project', {'t': 'http://tableau.com/api'}):
-            proj_name = project.get('name')
-            all_projects.append(proj_name)
-            # Try exact match first
-            if proj_name == project_name:
-                project_id = project.get('id')
+        page_number = 1
+        page_size = 1000  # Max page size
+        
+        while True:
+            projects_url = f"{server_url}/api/{api_version}/sites/{site_id}/projects?pageSize={page_size}&pageNumber={page_number}"
+            print(f"DEBUG: Fetching projects page {page_number}: {projects_url}")
+            
+            projects_response = requests.get(
+                projects_url,
+                headers={'X-Tableau-Auth': auth_token},
+                verify=True,
+                timeout=30
+            )
+            
+            if projects_response.status_code != 200:
+                return {
+                    'success': False,
+                    'error': f'Failed to get projects: {projects_response.status_code}'
+                }
+            
+            projects_data = ET.fromstring(projects_response.content)
+            
+            # Parse pagination info
+            pagination = projects_data.find('.//t:pagination', {'t': 'http://tableau.com/api'})
+            
+            # Collect projects from this page
+            page_projects = []
+            for project in projects_data.findall('.//t:project', {'t': 'http://tableau.com/api'}):
+                proj_name = project.get('name')
+                proj_id = project.get('id')
+                parent_id = project.get('parentProjectId')
+                
+                project_info = {
+                    'name': proj_name,
+                    'id': proj_id,
+                    'parentProjectId': parent_id
+                }
+                all_projects.append(project_info)
+                page_projects.append(proj_name)
+            
+            print(f"DEBUG: Page {page_number} returned {len(page_projects)} projects")
+            
+            # Check if there are more pages
+            if pagination is not None:
+                total_available = int(pagination.get('totalAvailable', 0))
+                page_size_returned = int(pagination.get('pageSize', page_size))
+                
+                if page_number * page_size_returned >= total_available:
+                    break
+            else:
+                # No pagination element means all results returned
+                break
+            
+            page_number += 1
+        
+        print(f"DEBUG: Total projects fetched: {len(all_projects)}")
+        print(f"DEBUG: Sample project names: {[p['name'] for p in all_projects[:5]]}")
+        
+        # Find the project by name (exact match first)
+        project_id = None
+        for project in all_projects:
+            if project['name'] == project_name:
+                project_id = project['id']
+                print(f"DEBUG: Found exact match: '{project['name']}' -> ID: {project_id}")
                 break
         
         # If no exact match, try case-insensitive and trimmed
         if not project_id:
             project_name_lower = project_name.lower().strip()
-            for project in projects_data.findall('.//t:project', {'t': 'http://tableau.com/api'}):
-                proj_name = project.get('name')
-                if proj_name and proj_name.lower().strip() == project_name_lower:
-                    project_id = project.get('id')
-                    print(f"DEBUG: Found project with case-insensitive match: '{proj_name}'")
+            for project in all_projects:
+                if project['name'] and project['name'].lower().strip() == project_name_lower:
+                    project_id = project['id']
+                    print(f"DEBUG: Found case-insensitive match: '{project['name']}' -> ID: {project_id}")
                     break
         
         if not project_id:
-            print(f"DEBUG: Available projects: {all_projects}")
+            all_project_names = [p['name'] for p in all_projects]
+            print(f"DEBUG: Available projects ({len(all_project_names)}): {all_project_names}")
             return {
                 'success': False,
-                'error': f'Project "{project_name}" not found. Available projects: {", ".join(all_projects[:10])}'
+                'error': f'Project "{project_name}" not found. Available projects: {", ".join(all_project_names[:20])}'
             }
         
         # Step 2: Build multipart request
