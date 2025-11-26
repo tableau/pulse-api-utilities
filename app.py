@@ -909,7 +909,8 @@ def create_hyper_extract_from_data(data_rows, column_definitions, output_path, t
     
     Args:
         data_rows: List of dictionaries with data
-        column_definitions: List of tuples (column_name, SqlType)
+        column_definitions: List of tuples (column_name, SqlType, dict_key)
+                           where dict_key is the actual key in the data dictionary
         output_path: Path to save .hyper file
         table_name: Name of the table in the extract
     
@@ -923,6 +924,11 @@ def create_hyper_extract_from_data(data_rows, column_definitions, output_path, t
         }
     
     try:
+        print(f"DEBUG: Creating Hyper extract with {len(data_rows)} rows")
+        if data_rows:
+            print(f"DEBUG: First row keys: {list(data_rows[0].keys())}")
+            print(f"DEBUG: First row data: {data_rows[0]}")
+        
         # Step 1: Start a new private local Hyper instance
         with HyperProcess(Telemetry.DO_NOT_SEND_USAGE_DATA_TO_TABLEAU, 'pulse-api-utilities') as hyper:
             
@@ -935,7 +941,7 @@ def create_hyper_extract_from_data(data_rows, column_definitions, output_path, t
                 connection.catalog.create_schema('Extract')
                 
                 # Step 4: Create the table definition
-                columns = [TableDefinition.Column(name, sql_type) for name, sql_type in column_definitions]
+                columns = [TableDefinition.Column(col_name, sql_type) for col_name, sql_type, _ in column_definitions]
                 schema = TableDefinition(
                     table_name=TableName('Extract', table_name),
                     columns=columns
@@ -947,10 +953,14 @@ def create_hyper_extract_from_data(data_rows, column_definitions, output_path, t
                 # Step 6: Insert data using Inserter for better performance
                 with Inserter(connection, schema) as inserter:
                     for row in data_rows:
-                        inserter.add_row([row.get(col_name) for col_name, _ in column_definitions])
+                        # Use the dict_key (third element) to get the actual value from the row
+                        row_values = [row.get(dict_key) for _, _, dict_key in column_definitions]
+                        print(f"DEBUG: Inserting row values: {row_values}")
+                        inserter.add_row(row_values)
                     inserter.execute()
                 
                 row_count = connection.execute_scalar_query(f"SELECT COUNT(*) FROM {schema.table_name}")
+                print(f"DEBUG: Final row count in Hyper: {row_count}")
                 
         return {
             'success': True,
@@ -959,6 +969,8 @@ def create_hyper_extract_from_data(data_rows, column_definitions, output_path, t
         }
         
     except Exception as e:
+        print(f"ERROR creating Hyper extract: {str(e)}")
+        print(traceback.format_exc())
         return {
             'success': False,
             'error': f'Failed to create Hyper extract: {str(e)}',
@@ -3281,8 +3293,8 @@ def tcm_activity_logs():
             print(f"DEBUG: User report data count: {len(user_report_data)}")
             
             user_columns = [
-                ('Username', SqlType.text()),
-                ('Metrics Following', SqlType.int())
+                ('Username', SqlType.text(), 'username'),
+                ('Metrics Following', SqlType.int(), 'metrics_following')
             ]
             
             user_hyper_result = create_hyper_extract_from_data(
@@ -3312,8 +3324,8 @@ def tcm_activity_logs():
             print(f"DEBUG: Metric report data count: {len(metric_report_data)}")
             
             metric_columns = [
-                ('Metric Name', SqlType.text()),
-                ('Follower Count', SqlType.int())
+                ('Metric Name', SqlType.text(), 'metric_name'),
+                ('Follower Count', SqlType.int(), 'follower_count')
             ]
             
             metric_hyper_result = create_hyper_extract_from_data(
