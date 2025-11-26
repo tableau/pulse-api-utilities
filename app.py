@@ -12,6 +12,14 @@ from urllib.parse import urlparse, quote
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 
+# Tableau Hyper API
+try:
+    from tableauhyperapi import HyperProcess, Connection, TableDefinition, SqlType, Telemetry, Inserter, CreateMode, TableName
+    HYPER_AVAILABLE = True
+except ImportError:
+    HYPER_AVAILABLE = False
+    print("WARNING: tableauhyperapi not installed. Hyper extract generation will be disabled.")
+
 # Create Flask application instance
 app = Flask(__name__)
 
@@ -890,6 +898,72 @@ def update_pulse_preferences(server_url, auth_token, user_luid, preferences, cur
             
     except Exception as e:
         return {'success': False, 'error': f'Error updating preferences: {str(e)}'}
+
+# ------------------------------
+# Tableau Hyper Extract Functions
+# ------------------------------
+
+def create_hyper_extract_from_data(data_rows, column_definitions, output_path, table_name='Extract'):
+    """
+    Create a Tableau Hyper extract from data rows.
+    
+    Args:
+        data_rows: List of dictionaries with data
+        column_definitions: List of tuples (column_name, SqlType)
+        output_path: Path to save .hyper file
+        table_name: Name of the table in the extract
+    
+    Returns:
+        dict: {'success': bool, 'file_path': str, 'error': str}
+    """
+    if not HYPER_AVAILABLE:
+        return {
+            'success': False,
+            'error': 'tableauhyperapi not installed. Run: pip install tableauhyperapi'
+        }
+    
+    try:
+        # Step 1: Start a new private local Hyper instance
+        with HyperProcess(Telemetry.DO_NOT_SEND_USAGE_DATA_TO_TABLEAU, 'pulse-api-utilities') as hyper:
+            
+            # Step 2: Create the .hyper file, replace it if it already exists
+            with Connection(endpoint=hyper.endpoint,
+                          create_mode=CreateMode.CREATE_AND_REPLACE,
+                          database=output_path) as connection:
+                
+                # Step 3: Create the schema
+                connection.catalog.create_schema('Extract')
+                
+                # Step 4: Create the table definition
+                columns = [TableDefinition.Column(name, sql_type) for name, sql_type in column_definitions]
+                schema = TableDefinition(
+                    table_name=TableName('Extract', table_name),
+                    columns=columns
+                )
+                
+                # Step 5: Create the table in the connection catalog
+                connection.catalog.create_table(schema)
+                
+                # Step 6: Insert data using Inserter for better performance
+                with Inserter(connection, schema) as inserter:
+                    for row in data_rows:
+                        inserter.add_row([row.get(col_name) for col_name, _ in column_definitions])
+                    inserter.execute()
+                
+                row_count = connection.execute_scalar_query(f"SELECT COUNT(*) FROM {schema.table_name}")
+                
+        return {
+            'success': True,
+            'file_path': output_path,
+            'row_count': row_count
+        }
+        
+    except Exception as e:
+        return {
+            'success': False,
+            'error': f'Failed to create Hyper extract: {str(e)}',
+            'traceback': traceback.format_exc()
+        }
 
 # ------------------------------
 # Tableau Cloud Manager (TCM) Functions
@@ -3188,9 +3262,64 @@ def tcm_activity_logs():
         results.append({'success': True, 'message': f'  ✅ Generated user report ({len(user_report_data)} users)'})
         results.append({'success': True, 'message': f'  ✅ Generated metric report ({len(metric_report_data)} metrics)'})
         
-        # Step 9: Save combined logs to text file (optional, for debugging)
+        # Step 9: Create Hyper extracts
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         date_file_label = date_label.replace(' ', '_').replace(',', '').replace('-', '_to_')
+        hyper_files = []
+        
+        if HYPER_AVAILABLE:
+            results.append({'success': True, 'message': '\n💎 Creating Tableau Hyper extracts...'})
+            
+            # Create User Subscriptions Hyper extract
+            user_hyper_filename = f"tcm_user_subscriptions_{date_file_label}_{site_luid}_{timestamp}.hyper"
+            user_hyper_path = os.path.join(os.path.dirname(__file__), user_hyper_filename)
+            
+            user_columns = [
+                ('Username', SqlType.text()),
+                ('Metrics Following', SqlType.int())
+            ]
+            
+            user_hyper_result = create_hyper_extract_from_data(
+                user_report_data,
+                user_columns,
+                user_hyper_path,
+                'User_Subscriptions'
+            )
+            
+            if user_hyper_result['success']:
+                hyper_files.append(user_hyper_filename)
+                results.append({'success': True, 'message': f'  ✅ User subscriptions extract: {user_hyper_filename}'})
+                results.append({'success': True, 'message': f'     ({user_hyper_result["row_count"]} rows)'})
+            else:
+                results.append({'success': False, 'message': f'  ⚠️  User extract failed: {user_hyper_result["error"]}'})
+            
+            # Create Metric Followers Hyper extract
+            metric_hyper_filename = f"tcm_metric_followers_{date_file_label}_{site_luid}_{timestamp}.hyper"
+            metric_hyper_path = os.path.join(os.path.dirname(__file__), metric_hyper_filename)
+            
+            metric_columns = [
+                ('Metric Name', SqlType.text()),
+                ('Follower Count', SqlType.int())
+            ]
+            
+            metric_hyper_result = create_hyper_extract_from_data(
+                metric_report_data,
+                metric_columns,
+                metric_hyper_path,
+                'Metric_Followers'
+            )
+            
+            if metric_hyper_result['success']:
+                hyper_files.append(metric_hyper_filename)
+                results.append({'success': True, 'message': f'  ✅ Metric followers extract: {metric_hyper_filename}'})
+                results.append({'success': True, 'message': f'     ({metric_hyper_result["row_count"]} rows)'})
+            else:
+                results.append({'success': False, 'message': f'  ⚠️  Metric extract failed: {metric_hyper_result["error"]}'})
+        else:
+            results.append({'success': False, 'message': '\n⚠️  Hyper extracts skipped: tableauhyperapi not installed'})
+            results.append({'success': True, 'message': '   Run: pip install tableauhyperapi'})
+        
+        # Step 11: Save combined logs to text file (optional, for debugging)
         output_filename = f"tcm_metric_subscription_logs_{date_file_label}_{site_luid}_{timestamp}.txt"
         output_path = os.path.join(os.path.dirname(__file__), output_filename)
         
@@ -3221,8 +3350,12 @@ def tcm_activity_logs():
         results.append({'success': True, 'message': f'📊 Total log size: {len(combined_logs):,} characters'})
         results.append({'success': True, 'message': f'📅 Date range: {date_label}'})
         results.append({'success': True, 'message': f'🔍 Event type: {event_type}'})
-        results.append({'success': True, 'message': f'📊 CSV Reports:'})
-        results.append({'success': True, 'message': f'   • Raw logs saved: {output_filename}'})
+        results.append({'success': True, 'message': f'📊 Output Files:'})
+        results.append({'success': True, 'message': f'   • Raw logs: {output_filename}'})
+        if hyper_files:
+            results.append({'success': True, 'message': f'   • Hyper extracts: {len(hyper_files)} file(s) created'})
+            for hyper_file in hyper_files:
+                results.append({'success': True, 'message': f'     - {hyper_file}'})
         results.append({'success': True, 'message': f'   • {len(user_report_data)} users analyzed'})
         results.append({'success': True, 'message': f'   • {len(metric_report_data)} metrics analyzed'})
         
@@ -3237,6 +3370,7 @@ def tcm_activity_logs():
             'log_count': downloaded_count,
             'failed_count': failed_count,
             'output_file': output_filename,
+            'hyper_files': hyper_files,
             'events_analyzed': len(subscription_events),
             'unique_users': len(user_luids),
             'unique_metrics': len(metric_ids),
