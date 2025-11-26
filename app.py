@@ -3267,12 +3267,18 @@ def tcm_activity_logs():
         date_file_label = date_label.replace(' ', '_').replace(',', '').replace('-', '_to_')
         hyper_files = []
         
+        print(f"\nDEBUG: HYPER_AVAILABLE = {HYPER_AVAILABLE}")
+        print(f"DEBUG: Output directory: {os.path.dirname(__file__)}")
+        
         if HYPER_AVAILABLE:
             results.append({'success': True, 'message': '\n💎 Creating Tableau Hyper extracts...'})
             
             # Create User Subscriptions Hyper extract
             user_hyper_filename = f"tcm_user_subscriptions_{date_file_label}_{site_luid}_{timestamp}.hyper"
             user_hyper_path = os.path.join(os.path.dirname(__file__), user_hyper_filename)
+            
+            print(f"DEBUG: Creating user hyper at: {user_hyper_path}")
+            print(f"DEBUG: User report data count: {len(user_report_data)}")
             
             user_columns = [
                 ('Username', SqlType.text()),
@@ -3286,16 +3292,24 @@ def tcm_activity_logs():
                 'User_Subscriptions'
             )
             
+            print(f"DEBUG: User hyper result: {user_hyper_result}")
+            
             if user_hyper_result['success']:
                 hyper_files.append(user_hyper_filename)
                 results.append({'success': True, 'message': f'  ✅ User subscriptions extract: {user_hyper_filename}'})
                 results.append({'success': True, 'message': f'     ({user_hyper_result["row_count"]} rows)'})
+                results.append({'success': True, 'message': f'     📁 {user_hyper_path}'})
             else:
                 results.append({'success': False, 'message': f'  ⚠️  User extract failed: {user_hyper_result["error"]}'})
+                if 'traceback' in user_hyper_result:
+                    print(f"ERROR creating user hyper: {user_hyper_result['traceback']}")
             
             # Create Metric Followers Hyper extract
             metric_hyper_filename = f"tcm_metric_followers_{date_file_label}_{site_luid}_{timestamp}.hyper"
             metric_hyper_path = os.path.join(os.path.dirname(__file__), metric_hyper_filename)
+            
+            print(f"DEBUG: Creating metric hyper at: {metric_hyper_path}")
+            print(f"DEBUG: Metric report data count: {len(metric_report_data)}")
             
             metric_columns = [
                 ('Metric Name', SqlType.text()),
@@ -3309,12 +3323,17 @@ def tcm_activity_logs():
                 'Metric_Followers'
             )
             
+            print(f"DEBUG: Metric hyper result: {metric_hyper_result}")
+            
             if metric_hyper_result['success']:
                 hyper_files.append(metric_hyper_filename)
                 results.append({'success': True, 'message': f'  ✅ Metric followers extract: {metric_hyper_filename}'})
                 results.append({'success': True, 'message': f'     ({metric_hyper_result["row_count"]} rows)'})
+                results.append({'success': True, 'message': f'     📁 {metric_hyper_path}'})
             else:
                 results.append({'success': False, 'message': f'  ⚠️  Metric extract failed: {metric_hyper_result["error"]}'})
+                if 'traceback' in metric_hyper_result:
+                    print(f"ERROR creating metric hyper: {metric_hyper_result['traceback']}")
         else:
             results.append({'success': False, 'message': '\n⚠️  Hyper extracts skipped: tableauhyperapi not installed'})
             results.append({'success': True, 'message': '   Run: pip install tableauhyperapi'})
