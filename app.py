@@ -1046,6 +1046,88 @@ def publish_hyper_file(server_url, site_id, auth_token, project_name, datasource
             'traceback': traceback.format_exc()
         }
 
+def create_multi_table_hyper_extract(tables_data, output_path):
+    """
+    Create a Tableau Hyper extract with multiple unrelated tables.
+    
+    Args:
+        tables_data: List of dicts with keys:
+                    - 'table_name': Name of the table
+                    - 'columns': List of tuples (column_name, SqlType, dict_key)
+                    - 'data': List of dictionaries with data
+        output_path: Path to save .hyper file
+    
+    Returns:
+        dict: {'success': bool, 'file_path': str, 'table_counts': dict, 'error': str}
+    """
+    if not HYPER_AVAILABLE:
+        return {
+            'success': False,
+            'error': 'tableauhyperapi not installed. Run: pip install tableauhyperapi'
+        }
+    
+    try:
+        print(f"DEBUG: Creating multi-table Hyper extract with {len(tables_data)} tables")
+        
+        table_counts = {}
+        
+        # Start a new private local Hyper instance
+        with HyperProcess(Telemetry.DO_NOT_SEND_USAGE_DATA_TO_TABLEAU, 'pulse-api-utilities') as hyper:
+            
+            # Create the .hyper file, replace it if it already exists
+            with Connection(endpoint=hyper.endpoint,
+                          create_mode=CreateMode.CREATE_AND_REPLACE,
+                          database=output_path) as connection:
+                
+                # Create the schema
+                connection.catalog.create_schema('Extract')
+                
+                # Process each table
+                for table_info in tables_data:
+                    table_name = table_info['table_name']
+                    column_definitions = table_info['columns']
+                    data_rows = table_info['data']
+                    
+                    print(f"DEBUG: Creating table '{table_name}' with {len(data_rows)} rows")
+                    
+                    # Create the table definition
+                    columns = [TableDefinition.Column(col_name, sql_type) for col_name, sql_type, _ in column_definitions]
+                    schema = TableDefinition(
+                        table_name=TableName('Extract', table_name),
+                        columns=columns
+                    )
+                    
+                    # Create the table in the connection catalog
+                    connection.catalog.create_table(schema)
+                    
+                    # Insert data using Inserter for better performance
+                    with Inserter(connection, schema) as inserter:
+                        for row in data_rows:
+                            row_values = [row.get(dict_key) for _, _, dict_key in column_definitions]
+                            inserter.add_row(row_values)
+                        inserter.execute()
+                    
+                    # Count rows
+                    row_count = connection.execute_scalar_query(f"SELECT COUNT(*) FROM {schema.table_name}")
+                    table_counts[table_name] = row_count
+                    print(f"DEBUG: Table '{table_name}' has {row_count} rows")
+        
+        print(f"DEBUG: Multi-table Hyper extract created successfully")
+        return {
+            'success': True,
+            'file_path': output_path,
+            'table_counts': table_counts
+        }
+        
+    except Exception as e:
+        print(f"ERROR creating multi-table Hyper extract: {str(e)}")
+        print(traceback.format_exc())
+        return {
+            'success': False,
+            'error': f'Failed to create multi-table Hyper extract: {str(e)}',
+            'traceback': traceback.format_exc()
+        }
+
 def create_hyper_extract_from_data(data_rows, column_definitions, output_path, table_name='Extract'):
     """
     Create a Tableau Hyper extract from data rows.
@@ -3439,79 +3521,70 @@ def tcm_activity_logs():
         print(f"DEBUG: Output directory: {os.path.dirname(__file__)}")
         
         if HYPER_AVAILABLE:
-            results.append({'success': True, 'message': '\n💎 Creating Tableau Hyper extracts...'})
+            results.append({'success': True, 'message': '\n💎 Creating multi-table Hyper extract...'})
             
-            # Create User Subscriptions Hyper extract
-            user_hyper_filename = f"tcm_user_subscriptions_{date_file_label}_{site_luid}_{timestamp}.hyper"
-            user_hyper_path = os.path.join(os.path.dirname(__file__), user_hyper_filename)
+            # Create a single Hyper file with both tables
+            combined_hyper_filename = f"tcm_activity_analysis_{date_file_label}_{site_luid}_{timestamp}.hyper"
+            combined_hyper_path = os.path.join(os.path.dirname(__file__), combined_hyper_filename)
             
-            print(f"DEBUG: Creating user hyper at: {user_hyper_path}")
+            print(f"DEBUG: Creating multi-table hyper at: {combined_hyper_path}")
             print(f"DEBUG: User report data count: {len(user_report_data)}")
-            
-            user_columns = [
-                ('Username', SqlType.text(), 'username'),
-                ('Metrics Following', SqlType.int(), 'metrics_following')
-            ]
-            
-            user_hyper_result = create_hyper_extract_from_data(
-                user_report_data,
-                user_columns,
-                user_hyper_path,
-                'User_Subscriptions'
-            )
-            
-            print(f"DEBUG: User hyper result: {user_hyper_result}")
-            
-            if user_hyper_result['success']:
-                hyper_files.append(user_hyper_filename)
-                results.append({'success': True, 'message': f'  ✅ User subscriptions extract: {user_hyper_filename}'})
-                results.append({'success': True, 'message': f'     ({user_hyper_result["row_count"]} rows)'})
-                results.append({'success': True, 'message': f'     📁 {user_hyper_path}'})
-            else:
-                results.append({'success': False, 'message': f'  ⚠️  User extract failed: {user_hyper_result["error"]}'})
-                if 'traceback' in user_hyper_result:
-                    print(f"ERROR creating user hyper: {user_hyper_result['traceback']}")
-            
-            # Create Metric Followers Hyper extract
-            metric_hyper_filename = f"tcm_metric_followers_{date_file_label}_{site_luid}_{timestamp}.hyper"
-            metric_hyper_path = os.path.join(os.path.dirname(__file__), metric_hyper_filename)
-            
-            print(f"DEBUG: Creating metric hyper at: {metric_hyper_path}")
             print(f"DEBUG: Metric report data count: {len(metric_report_data)}")
             
-            metric_columns = [
-                ('Metric Name', SqlType.text(), 'metric_name'),
-                ('Follower Count', SqlType.int(), 'follower_count')
+            # Define both tables
+            tables_data = [
+                {
+                    'table_name': 'User_Subscriptions',
+                    'columns': [
+                        ('Username', SqlType.text(), 'username'),
+                        ('Metrics Following', SqlType.int(), 'metrics_following')
+                    ],
+                    'data': user_report_data
+                },
+                {
+                    'table_name': 'Metric_Followers',
+                    'columns': [
+                        ('Metric Name', SqlType.text(), 'metric_name'),
+                        ('Follower Count', SqlType.int(), 'follower_count')
+                    ],
+                    'data': metric_report_data
+                }
             ]
             
-            metric_hyper_result = create_hyper_extract_from_data(
-                metric_report_data,
-                metric_columns,
-                metric_hyper_path,
-                'Metric_Followers'
+            # Create multi-table Hyper extract
+            combined_hyper_result = create_multi_table_hyper_extract(
+                tables_data,
+                combined_hyper_path
             )
             
-            print(f"DEBUG: Metric hyper result: {metric_hyper_result}")
+            print(f"DEBUG: Combined hyper result: {combined_hyper_result}")
             
-            if metric_hyper_result['success']:
-                hyper_files.append(metric_hyper_filename)
-                results.append({'success': True, 'message': f'  ✅ Metric followers extract: {metric_hyper_filename}'})
-                results.append({'success': True, 'message': f'     ({metric_hyper_result["row_count"]} rows)'})
-                results.append({'success': True, 'message': f'     📁 {metric_hyper_path}'})
+            if combined_hyper_result['success']:
+                hyper_files.append(combined_hyper_filename)
+                results.append({'success': True, 'message': f'  ✅ Multi-table extract created: {combined_hyper_filename}'})
+                results.append({'success': True, 'message': f'     📊 User_Subscriptions table: {combined_hyper_result["table_counts"]["User_Subscriptions"]} rows'})
+                results.append({'success': True, 'message': f'     📊 Metric_Followers table: {combined_hyper_result["table_counts"]["Metric_Followers"]} rows'})
+                results.append({'success': True, 'message': f'     📁 {combined_hyper_path}'})
+                
+                # Store the path for publishing
+                user_hyper_path = combined_hyper_path
+                metric_hyper_path = combined_hyper_path
+                user_hyper_result = combined_hyper_result
+                metric_hyper_result = combined_hyper_result
             else:
-                results.append({'success': False, 'message': f'  ⚠️  Metric extract failed: {metric_hyper_result["error"]}'})
-                if 'traceback' in metric_hyper_result:
-                    print(f"ERROR creating metric hyper: {metric_hyper_result['traceback']}")
+                results.append({'success': False, 'message': f'  ⚠️  Multi-table extract failed: {combined_hyper_result["error"]}'})
+                if 'traceback' in combined_hyper_result:
+                    print(f"ERROR creating multi-table hyper: {combined_hyper_result['traceback']}")
         else:
             results.append({'success': False, 'message': '\n⚠️  Hyper extracts skipped: tableauhyperapi not installed'})
             results.append({'success': True, 'message': '   Run: pip install tableauhyperapi'})
         
-        # Step 10: Publish datasources if requested
+        # Step 10: Publish datasource if requested
         publish_datasources = data.get('publish_datasources') == 'on' or data.get('publish_datasources') == True
         published_datasources = []
         
         if publish_datasources and hyper_files:
-            results.append({'success': True, 'message': '\n📤 Publishing datasources to Tableau Cloud...'})
+            results.append({'success': True, 'message': '\n📤 Publishing datasource to Tableau Cloud...'})
             
             project_name = data.get('project_name', 'Default').strip()
             datasource_prefix = data.get('datasource_prefix', 'TCM Activity').strip()
@@ -3519,53 +3592,28 @@ def tcm_activity_logs():
             # We already have auth from earlier steps
             # auth_token, site_id_returned are from Tableau auth
             
-            # Publish User Subscriptions datasource
-            if user_hyper_result.get('success'):
-                user_ds_name = f"{datasource_prefix} - User Subscriptions"
-                results.append({'success': True, 'message': f'  📊 Publishing: {user_ds_name}'})
+            # Publish the combined multi-table datasource
+            if combined_hyper_result.get('success'):
+                ds_name = f"{datasource_prefix} Analysis"
+                results.append({'success': True, 'message': f'  📊 Publishing: {ds_name}'})
+                results.append({'success': True, 'message': f'     (Contains User_Subscriptions & Metric_Followers tables)'})
                 
                 publish_result = publish_hyper_file(
                     tableau_server,
                     site_id_returned,
                     auth_token,
                     project_name,
-                    user_ds_name,
-                    user_hyper_path,
+                    ds_name,
+                    combined_hyper_path,
                     api_version
                 )
                 
                 if publish_result['success']:
                     published_datasources.append({
-                        'name': user_ds_name,
+                        'name': ds_name,
                         'id': publish_result['datasource_id'],
-                        'url': publish_result.get('web_url')
-                    })
-                    results.append({'success': True, 'message': f'     ✅ Published successfully'})
-                    if publish_result.get('web_url'):
-                        results.append({'success': True, 'message': f'     🔗 {publish_result["web_url"]}'})
-                else:
-                    results.append({'success': False, 'message': f'     ❌ Failed: {publish_result["error"]}'})
-            
-            # Publish Metric Followers datasource
-            if metric_hyper_result.get('success'):
-                metric_ds_name = f"{datasource_prefix} - Metric Followers"
-                results.append({'success': True, 'message': f'  📊 Publishing: {metric_ds_name}'})
-                
-                publish_result = publish_hyper_file(
-                    tableau_server,
-                    site_id_returned,
-                    auth_token,
-                    project_name,
-                    metric_ds_name,
-                    metric_hyper_path,
-                    api_version
-                )
-                
-                if publish_result['success']:
-                    published_datasources.append({
-                        'name': metric_ds_name,
-                        'id': publish_result['datasource_id'],
-                        'url': publish_result.get('web_url')
+                        'url': publish_result.get('web_url'),
+                        'tables': ['User_Subscriptions', 'Metric_Followers']
                     })
                     results.append({'success': True, 'message': f'     ✅ Published successfully'})
                     if publish_result.get('web_url'):
@@ -3607,13 +3655,12 @@ def tcm_activity_logs():
         results.append({'success': True, 'message': f'📊 Output Files:'})
         results.append({'success': True, 'message': f'   • Raw logs: {output_filename}'})
         if hyper_files:
-            results.append({'success': True, 'message': f'   • Hyper extracts: {len(hyper_files)} file(s) created'})
-            for hyper_file in hyper_files:
-                results.append({'success': True, 'message': f'     - {hyper_file}'})
+            results.append({'success': True, 'message': f'   • Hyper extract: {hyper_files[0]}'})
+            results.append({'success': True, 'message': f'     (2 tables: User_Subscriptions, Metric_Followers)'})
         if published_datasources:
-            results.append({'success': True, 'message': f'   • Published datasources: {len(published_datasources)}'})
-            for ds in published_datasources:
-                results.append({'success': True, 'message': f'     - {ds["name"]}'})
+            results.append({'success': True, 'message': f'   • Published datasource: {published_datasources[0]["name"]}'})
+            if published_datasources[0].get('url'):
+                results.append({'success': True, 'message': f'     View: {published_datasources[0]["url"]}'})
         results.append({'success': True, 'message': f'   • {len(user_report_data)} users analyzed'})
         results.append({'success': True, 'message': f'   • {len(metric_report_data)} metrics analyzed'})
         
