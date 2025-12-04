@@ -3167,15 +3167,15 @@ def export_definitions():
                 row['Time Dimension'] = '(Viz State)'
                 row['Definitional Filters'] = '(Viz State)'
             
-            # Add type and ID after the core fields
+            # Add type, ID, and datasource after the core fields
             row['Type'] = 'Viz State' if is_viz_state else 'Basic'
             row['Definition ID'] = metadata.get('id', '')
+            row['Datasource Name'] = datasource_name
             
             # Verbose fields (always include for both types)
             if export_mode == 'verbose':
                 row['Description'] = metadata.get('description', '')
                 row['Datasource ID'] = datasource_id
-                row['Datasource Name'] = datasource_name
                 row['Is Running Total'] = str(spec.get('is_running_total', False))
                 
                 # Extension options
