@@ -3285,6 +3285,7 @@ def export_definitions():
             'results': results,
             'summary': f"Exported {len(csv_rows)} definitions ({basic_count} basic, {viz_state_count} viz-state)",
             'csv_data': csv_rows,
+            'csv_columns': fieldnames,  # Ordered column names for UI table
             'csv_content': csv_content,
             'csv_filename': csv_filename,
             'export_mode': export_mode
