@@ -3137,13 +3137,21 @@ def export_definitions():
             datasource_id = datasource_info.get('id', '') if isinstance(datasource_info, dict) else str(datasource_info)
             datasource_name = datasource_map.get(datasource_id, '')
             
-            # Debug: log first few unmatched datasources
-            if not datasource_name and datasource_id and basic_count + viz_state_count <= 3:
-                print(f"DEBUG: Datasource ID '{datasource_id}' not found in map. Map has {len(datasource_map)} entries.")
-                if datasource_map:
-                    print(f"DEBUG: Sample map keys: {list(datasource_map.keys())[:3]}")
+            # If not found in map, try querying the datasource directly by LUID
+            if not datasource_name and datasource_id:
+                try:
+                    ds_url = f"{server_url}/api/{api_version}/sites/{site_id}/datasources/{datasource_id}"
+                    ds_response = requests.get(ds_url, headers=headers, verify=True, timeout=10)
+                    if ds_response.status_code == 200:
+                        ds_data = ds_response.json()
+                        datasource_name = ds_data.get('datasource', {}).get('name', '')
+                        # Cache it for future lookups
+                        if datasource_name:
+                            datasource_map[datasource_id] = datasource_name
+                except Exception as e:
+                    print(f"DEBUG: Failed to lookup datasource {datasource_id}: {str(e)}")
             
-            # If no name found, use the ID as fallback
+            # If still no name found, use the ID as fallback
             if not datasource_name:
                 datasource_name = datasource_id if datasource_id else 'Unknown'
             
