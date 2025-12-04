@@ -3102,6 +3102,9 @@ def export_definitions():
         datasource_map = {}
         if datasources_result['success']:
             datasource_map = datasources_result.get('datasources', {})
+            results.append({'success': True, 'message': f'  ✅ Found {len(datasource_map)} datasources for name lookup'})
+        else:
+            results.append({'success': False, 'message': f'  ⚠️ Could not fetch datasources: {datasources_result.get("error", "Unknown error")}'})
         
         # Process definitions and build CSV data
         results.append({'success': True, 'message': '📝 Processing definitions...'})
@@ -3132,10 +3135,29 @@ def export_definitions():
             # Get datasource info
             datasource_info = spec.get('datasource', {})
             datasource_id = datasource_info.get('id', '') if isinstance(datasource_info, dict) else str(datasource_info)
-            datasource_name = datasource_map.get(datasource_id, datasource_id)
+            datasource_name = datasource_map.get(datasource_id, '')
             
-            # Build row based on mode and type - Name first, then core fields
+            # If not found in map, try querying the datasource directly by LUID
+            if not datasource_name and datasource_id:
+                try:
+                    ds_url = f"{server_url}/api/{api_version}/sites/{site_id}/datasources/{datasource_id}"
+                    ds_response = requests.get(ds_url, headers=headers, verify=True, timeout=10)
+                    if ds_response.status_code == 200:
+                        ds_data = ds_response.json()
+                        datasource_name = ds_data.get('datasource', {}).get('name', '')
+                        # Cache it for future lookups
+                        if datasource_name:
+                            datasource_map[datasource_id] = datasource_name
+                except Exception as e:
+                    print(f"DEBUG: Failed to lookup datasource {datasource_id}: {str(e)}")
+            
+            # If still no name found, use the ID as fallback
+            if not datasource_name:
+                datasource_name = datasource_id if datasource_id else 'Unknown'
+            
+            # Build row based on mode and type - Datasource Name first, then Name, then core fields
             row = {
+                'Datasource Name': datasource_name,
                 'Name': metadata.get('name', '')
             }
             
@@ -3175,7 +3197,6 @@ def export_definitions():
             if export_mode == 'verbose':
                 row['Description'] = metadata.get('description', '')
                 row['Datasource ID'] = datasource_id
-                row['Datasource Name'] = datasource_name
                 row['Is Running Total'] = str(spec.get('is_running_total', False))
                 
                 # Extension options
@@ -3264,6 +3285,7 @@ def export_definitions():
             'results': results,
             'summary': f"Exported {len(csv_rows)} definitions ({basic_count} basic, {viz_state_count} viz-state)",
             'csv_data': csv_rows,
+            'csv_columns': fieldnames,  # Ordered column names for UI table
             'csv_content': csv_content,
             'csv_filename': csv_filename,
             'export_mode': export_mode

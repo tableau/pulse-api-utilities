@@ -58,7 +58,7 @@ Get comprehensive insights and analytics about Pulse metric usage across your si
 
 ### 8. 📑 Export Definitions
 Export all Pulse metric definitions to CSV for documentation or analysis
-- **📋 Basic Mode**: Export essential fields - Name, Measure, Time Dimension, Definitional Filters
+- **📋 Basic Mode**: Export essential fields - Name, Measure, Time Dimension, Definitional Filters, Datasource Name
 - **📊 Verbose Mode**: Export all configuration details including extension options, comparisons, certification status, and more
 - **🎨 Viz State Support**: Handles Viz State definitions appropriately (marks measure/filters as embedded)
 - **📥 Download CSV**: Tab-delimited CSV file with one row per definition
@@ -295,7 +295,7 @@ hello-world-app/
 
 2. **Export Mode Selection**:
    - **Basic Mode**: Exports essential fields only
-     - Name, Measure, Time Dimension, Definitional Filters, Type, Definition ID
+     - Name, Measure, Time Dimension, Definitional Filters, Type, Definition ID, Datasource Name
    - **Verbose Mode**: Exports all configuration details including:
      - All basic fields plus Description, Datasource info, Running Total setting
      - Extension options (Allowed Dimensions, Granularities, Offset settings)
