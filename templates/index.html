@@ -503,6 +503,8 @@
             <button class="tab-button" onclick="showTab('update-preferences')">⚙️ Update Preferences</button>
             <button class="tab-button" onclick="showTab('check-certified')">✅ Check Certified</button>
             <button class="tab-button" onclick="showTab('bulk-scoped')">📊 Bulk Scoped Metrics</button>
+            <button class="tab-button" onclick="showTab('analytics')">📈 Analytics</button>
+            <button class="tab-button" onclick="showTab('tcm-logs')">📋 TCM Logs</button>
         </div>
 
         <!-- Home Tab - Utility Selector -->
@@ -580,6 +582,42 @@
                             <span>📄 CSV upload support</span>
                             <span>🔍 Multiple filter values per metric</span>
                             <span>👥 Auto-assign followers by email</span>
+                        </div>
+                        <button class="utility-button">Get Started</button>
+                    </div>
+
+                    <div class="utility-card" onclick="showTab('analytics')">
+                        <div class="utility-icon">📈</div>
+                        <h3>Pulse Analytics</h3>
+                        <p>Get comprehensive insights into metric usage, followers, and datasource adoption across your site</p>
+                        <div class="utility-features">
+                            <span>📊 Metric & definition statistics</span>
+                            <span>👥 Follower analytics</span>
+                            <span>🗄️ Datasource usage insights</span>
+                        </div>
+                        <button class="utility-button">Get Started</button>
+                    </div>
+
+                    <div class="utility-card" onclick="showTab('tcm-logs')">
+                        <div class="utility-icon">📋</div>
+                        <h3>TCM Activity Logs</h3>
+                        <p>Download and view activity logs from Tableau Cloud Manager for your site</p>
+                        <div class="utility-features">
+                            <span>📥 Download activity logs</span>
+                            <span>📅 Last 14 days by default</span>
+                            <span>🔍 Combined log view</span>
+                        </div>
+                        <button class="utility-button">Get Started</button>
+                    </div>
+
+                    <div class="utility-card" onclick="showTab('export-definitions')">
+                        <div class="utility-icon">📑</div>
+                        <h3>Export Definitions</h3>
+                        <p>Export all Pulse metric definitions to CSV for documentation or analysis</p>
+                        <div class="utility-features">
+                            <span>📊 Basic or verbose export</span>
+                            <span>📋 One row per definition</span>
+                            <span>📥 Download as CSV</span>
                         </div>
                         <button class="utility-button">Get Started</button>
                     </div>
@@ -1135,6 +1173,250 @@
             </form>
         </div>
 
+        <!-- Pulse Analytics Tab -->
+        <div id="analytics" class="tab-content">
+            <div class="form-header">
+                <h2>📈 Pulse Analytics</h2>
+                <p>Get comprehensive insights into metric usage, followers, and datasource adoption</p>
+                <button type="button" class="button secondary back-button" onclick="showTab('home')">← Back to Home</button>
+            </div>
+            
+            <form id="analyticsForm" onsubmit="submitAnalytics(event)">
+                <!-- Server Connection Section -->
+                <div class="form-section">
+                    <h3>🔗 Server Connection</h3>
+                    <div class="form-row">
+                        <input type="url" id="analytics_server_url" name="server_url" placeholder="Tableau Server URL (e.g., https://your-server.com)" required>
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="analytics_api_version" name="api_version" value="3.26" placeholder="API Version (e.g., 3.26)" pattern="^\d+\.\d+$">
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="analytics_site_content_url" name="site_content_url" placeholder="Site Content URL (blank for Default)">
+                    </div>
+                    <div class="form-row">
+                        <select id="analytics_auth_method" name="auth_method" onchange="toggleAuthFields('analytics')" required>
+                            <option value="">Select Authentication Method</option>
+                            <option value="password">Username/Password</option>
+                            <option value="pat">Personal Access Token</option>
+                        </select>
+                    </div>
+                    <div id="analytics_user_auth" class="auth-fields" style="display: none;">
+                        <div class="form-row">
+                            <input type="text" id="analytics_username" name="username" placeholder="Username">
+                        </div>
+                        <div class="form-row">
+                            <input type="password" id="analytics_password" name="password" placeholder="Password">
+                        </div>
+                    </div>
+                    <div id="analytics_pat_auth" class="auth-fields" style="display: none;">
+                        <div class="form-row">
+                            <input type="text" id="analytics_pat_name" name="pat_name" placeholder="PAT Name">
+                        </div>
+                        <div class="form-row">
+                            <input type="password" id="analytics_pat_token" name="pat_token" placeholder="PAT Value">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="button">📈 Generate Analytics</button>
+                    <button type="button" class="button secondary" onclick="showTab('home')">← Back to Home</button>
+                </div>
+            </form>
+
+            <!-- Analytics Results Display -->
+            <div id="analyticsResults" style="display: none; margin-top: 30px;">
+                <h3>📊 Analytics Dashboard</h3>
+                
+                <!-- Summary Cards -->
+                <div id="analyticsSummary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 30px;"></div>
+                
+                <!-- Top Metrics Table -->
+                <div id="topMetricsSection" style="margin-bottom: 30px;"></div>
+                
+                <!-- Top Definitions Table -->
+                <div id="topDefinitionsSection" style="margin-bottom: 30px;"></div>
+                
+                <!-- Top Datasources Table -->
+                <div id="topDatasourcesSection"></div>
+            </div>
+        </div>
+
+        <!-- TCM Activity Logs Tab -->
+        <div id="tcm-logs" class="tab-content">
+            <div class="form-header">
+                <h2>📋 Tableau Cloud Manager Activity Logs</h2>
+                <p>Download and view activity logs from your Tableau Cloud Manager site</p>
+                <button type="button" class="button secondary back-button" onclick="showTab('home')">← Back to Home</button>
+            </div>
+            
+            <form id="tcmLogsForm" onsubmit="submitTCMLogs(event)">
+                <!-- TCM Connection Section -->
+                <div class="form-section">
+                    <h3>🔗 Tableau Cloud Manager Connection</h3>
+                    <div class="form-row">
+                        <input type="url" id="tcm_uri" name="tcm_uri" placeholder="TCM URI (e.g., https://manage.prod.us-west-2.b.tsi.lan)" required>
+                        <small>💡 Your Tableau Cloud Manager site URL</small>
+                    </div>
+                    <div class="form-row">
+                        <input type="password" id="tcm_pat_token" name="pat_token" placeholder="TCM Personal Access Token" required>
+                        <small>💡 Create a PAT on your TCM site for authentication</small>
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="tcm_site_luid" name="site_luid" placeholder="Site LUID" required>
+                        <small>💡 The LUID of the Tableau site you want to fetch logs for</small>
+                    </div>
+                    
+                    <!-- Date Range Selection -->
+                    <div class="form-row">
+                        <label style="font-weight: 600; margin-bottom: 8px; display: block;">📅 Date Range:</label>
+                        <select id="tcm_date_range_type" name="date_range_type" onchange="toggleTCMDateInputs()" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+                            <option value="last_7_days">Last 7 Days</option>
+                            <option value="custom">Custom Date Range</option>
+                        </select>
+                        <small>💡 Choose between recent logs or a specific date range</small>
+                    </div>
+                    
+                    <!-- Custom Date Inputs (hidden by default) -->
+                    <div id="tcm_custom_dates" style="display: none;">
+                        <div class="form-row">
+                            <input type="date" id="tcm_start_date" name="start_date" placeholder="Start Date">
+                            <small>💡 Start date for custom range (will be split into 7-day chunks)</small>
+                        </div>
+                        <div class="form-row">
+                            <input type="date" id="tcm_end_date" name="end_date" placeholder="End Date">
+                            <small>💡 End date for custom range</small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tableau PAT for Pulse API Lookups -->
+                <div class="form-section">
+                    <h3>🔐 Tableau Site Credentials (for name lookups)</h3>
+                    <div class="form-row">
+                        <input type="url" id="tcm_tableau_server" name="tableau_server" placeholder="Tableau Server URL (e.g., https://prod-uswest-c.online.tableau.com)" required>
+                        <small>💡 Your Tableau Cloud instance URL (not TCM)</small>
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="tcm_tableau_site_id" name="tableau_site_id" placeholder="Site ID/Content URL (e.g., mysite)" required>
+                        <small>💡 Your Tableau site's content URL</small>
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="tcm_tableau_pat_name" name="tableau_pat_name" placeholder="Tableau PAT Name" required>
+                        <small>💡 Personal Access Token name for Tableau API</small>
+                    </div>
+                    <div class="form-row">
+                        <input type="password" id="tcm_tableau_pat_token" name="tableau_pat_token" placeholder="Tableau PAT Token" required>
+                        <small>💡 Personal Access Token secret for Tableau API</small>
+                    </div>
+                </div>
+
+                <!-- Publishing Options -->
+                <div class="form-section">
+                    <h3>📤 Publishing Options</h3>
+                    <div class="form-row">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="tcm_publish_datasources" name="publish_datasources" onchange="toggleTCMPublishOptions()">
+                            <span style="font-weight: 600;">Publish Hyper extracts as datasources to Tableau Cloud</span>
+                        </label>
+                        <small>💡 Automatically publish the generated Hyper files to your Tableau site</small>
+                    </div>
+                    
+                    <!-- Project selection (hidden by default) -->
+                    <div id="tcm_publish_options" style="display: none; margin-top: 15px; padding: 15px; background-color: #f9f9f9; border-radius: 4px;">
+                        <div class="form-row">
+                            <input type="text" id="tcm_project_name" name="project_name" placeholder="Project Name (e.g., Default)">
+                            <small>💡 The Tableau project where datasources will be published</small>
+                        </div>
+                        <div class="form-row">
+                            <input type="text" id="tcm_datasource_prefix" name="datasource_prefix" placeholder="Datasource Name Prefix (optional)" value="TCM Activity">
+                            <small>💡 Prefix for datasource names (e.g., "TCM Activity - User Subscriptions")</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="button">📋 Fetch Activity Logs</button>
+                    <button type="button" class="button secondary" onclick="showTab('home')">← Back to Home</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Export Definitions Tab -->
+        <div id="export-definitions" class="tab-content">
+            <div class="form-header">
+                <h2>📑 Export Pulse Definitions</h2>
+                <p>Export all metric definitions from your site to CSV for documentation or analysis</p>
+                <button type="button" class="button secondary back-button" onclick="showTab('home')">← Back to Home</button>
+            </div>
+            
+            <form id="exportDefinitionsForm" onsubmit="submitExportDefinitions(event)">
+                <!-- Server Connection Section -->
+                <div class="form-section">
+                    <h3>🔌 Tableau Server Connection</h3>
+                    <div class="form-row">
+                        <input type="text" id="export_server_url" name="server_url" placeholder="Server URL (e.g., https://10ax.online.tableau.com)" required>
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="export_api_version" name="api_version" placeholder="API Version (default: 3.26)" value="3.26">
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="export_site_content_url" name="site_content_url" placeholder="Site Content URL (leave blank for default site)">
+                    </div>
+                </div>
+
+                <!-- Authentication Section -->
+                <div class="form-section">
+                    <h3>🔐 Authentication</h3>
+                    <div class="form-row">
+                        <select id="export_auth_method" name="auth_method" onchange="toggleExportAuthFields()" required>
+                            <option value="">Select Authentication Method</option>
+                            <option value="username">Username/Password</option>
+                            <option value="pat">Personal Access Token</option>
+                        </select>
+                    </div>
+                    <div id="export_user_auth" class="auth-fields" style="display: none;">
+                        <div class="form-row">
+                            <input type="text" id="export_username" name="username" placeholder="Username">
+                        </div>
+                        <div class="form-row">
+                            <input type="password" id="export_password" name="password" placeholder="Password">
+                        </div>
+                    </div>
+                    <div id="export_pat_auth" class="auth-fields" style="display: none;">
+                        <div class="form-row">
+                            <input type="text" id="export_pat_name" name="pat_name" placeholder="PAT Name">
+                        </div>
+                        <div class="form-row">
+                            <input type="password" id="export_pat_token" name="pat_token" placeholder="PAT Token">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Export Options Section -->
+                <div class="form-section">
+                    <h3>📋 Export Options</h3>
+                    <div class="form-row">
+                        <select id="export_mode" name="export_mode" required>
+                            <option value="basic">Basic - Name, Measure, Time Dimension, Filters</option>
+                            <option value="verbose">Verbose - All Configuration Details</option>
+                        </select>
+                        <small>💡 Basic mode shows essential fields; Verbose includes extension options, comparisons, certification, etc.</small>
+                    </div>
+                    <div class="info-box" style="margin-top: 15px; padding: 12px; background-color: #f0f8ff; border-left: 4px solid #0066cc; border-radius: 4px;">
+                        <strong>ℹ️ Note about Viz State definitions:</strong><br>
+                        Viz State definitions (created from existing visualizations) will show the name and type, but Measure, Time Dimension, and Filters will be marked as "(Viz State)" since they're embedded in the visualization.
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="button">📑 Export Definitions</button>
+                    <button type="button" class="button secondary" onclick="showTab('home')">← Back to Home</button>
+                </div>
+            </form>
+        </div>
+
         <!-- Results section -->
         <div id="results" class="results-section" style="display: none;">
             <h3 id="resultsTitle">📊 Results</h3>
@@ -1170,6 +1452,34 @@
         }
 
         // Authentication method toggle
+        function toggleTCMDateInputs() {
+            const dateRangeType = document.getElementById('tcm_date_range_type').value;
+            const customDatesDiv = document.getElementById('tcm_custom_dates');
+            
+            if (dateRangeType === 'custom') {
+                customDatesDiv.style.display = 'block';
+                document.getElementById('tcm_start_date').required = true;
+                document.getElementById('tcm_end_date').required = true;
+            } else {
+                customDatesDiv.style.display = 'none';
+                document.getElementById('tcm_start_date').required = false;
+                document.getElementById('tcm_end_date').required = false;
+            }
+        }
+
+        function toggleTCMPublishOptions() {
+            const publishCheckbox = document.getElementById('tcm_publish_datasources');
+            const publishOptionsDiv = document.getElementById('tcm_publish_options');
+            
+            if (publishCheckbox.checked) {
+                publishOptionsDiv.style.display = 'block';
+                document.getElementById('tcm_project_name').required = true;
+            } else {
+                publishOptionsDiv.style.display = 'none';
+                document.getElementById('tcm_project_name').required = false;
+            }
+        }
+
         function toggleAuthFields(site) {
             const authMethod = document.getElementById(site + '_auth_method').value;
             const userAuth = document.getElementById(site + '_user_auth');
@@ -1371,6 +1681,122 @@
             
             resultsDiv.innerHTML = resultsHTML;
             document.getElementById('results').style.display = 'block';
+        }
+
+        // Show TCM results with tables
+        function showTCMResults(result, completionMessage = '✅ Analysis completed!') {
+            console.log('showTCMResults called with:', result);
+            
+            const progressDiv = document.getElementById('progress');
+            const resultsDiv = document.getElementById('copyResults');
+            
+            progressDiv.innerHTML = completionMessage;
+            
+            let resultsHTML = '';
+            
+            // Show progress messages
+            if (result.results && result.results.length > 0) {
+                result.results.forEach(item => {
+                    const statusClass = item.success ? 'success' : 'error';
+                    const statusIcon = item.success ? '✅' : '❌';
+                    resultsHTML += `
+                        <div class="result-item ${statusClass}">
+                            ${statusIcon} ${item.message}
+                        </div>
+                    `;
+                });
+            }
+            
+            // Show summary
+            if (result.summary) {
+                resultsHTML += `
+                    <div class="result-item">
+                        <strong>📊 Summary:</strong><br>
+                        ${result.summary}
+                    </div>
+                `;
+            }
+            
+            // Show User Subscriptions Table
+            console.log('Checking user_table:', result.user_table);
+            if (result.user_table && result.user_table.length > 0) {
+                console.log('Rendering user table with', result.user_table.length, 'rows');
+                
+                let userTableHTML = '<div class="result-item" style="margin-top: 20px; padding: 15px; background-color: white; border-radius: 8px;">';
+                userTableHTML += '<h3 style="margin-bottom: 15px; color: #333;">👥 User Subscriptions</h3>';
+                userTableHTML += '<div style="overflow-x: auto;">';
+                userTableHTML += '<table style="width: 100%; border-collapse: collapse; font-size: 14px; background-color: white;">';
+                userTableHTML += '<thead>';
+                userTableHTML += '<tr style="background-color: #f5f5f5; border-bottom: 2px solid #ddd;">';
+                userTableHTML += '<th style="padding: 12px; text-align: left; border: 1px solid #ddd; font-weight: 600;">Username</th>';
+                userTableHTML += '<th style="padding: 12px; text-align: center; border: 1px solid #ddd; font-weight: 600; width: 150px;">Metrics Following</th>';
+                userTableHTML += '</tr>';
+                userTableHTML += '</thead>';
+                userTableHTML += '<tbody>';
+                
+                result.user_table.forEach((row, index) => {
+                    const bgColor = index % 2 === 0 ? '#fff' : '#f9f9f9';
+                    userTableHTML += '<tr style="background-color: ' + bgColor + ';">';
+                    userTableHTML += '<td style="padding: 10px; border: 1px solid #ddd;">' + row.username + '</td>';
+                    userTableHTML += '<td style="padding: 10px; border: 1px solid #ddd; text-align: center;">' + row.metrics_following + '</td>';
+                    userTableHTML += '</tr>';
+                });
+                
+                userTableHTML += '</tbody>';
+                userTableHTML += '</table>';
+                userTableHTML += '</div>';
+                userTableHTML += '</div>';
+                
+                resultsHTML += userTableHTML;
+                console.log('User table HTML added, length:', userTableHTML.length);
+            } else {
+                console.log('No user table data to display');
+            }
+            
+            // Show Metric Followers Table
+            console.log('Checking metric_table:', result.metric_table);
+            if (result.metric_table && result.metric_table.length > 0) {
+                console.log('Rendering metric table with', result.metric_table.length, 'rows');
+                
+                let metricTableHTML = '<div class="result-item" style="margin-top: 20px; padding: 15px; background-color: white; border-radius: 8px;">';
+                metricTableHTML += '<h3 style="margin-bottom: 15px; color: #333;">📊 Metric Followers</h3>';
+                metricTableHTML += '<div style="overflow-x: auto;">';
+                metricTableHTML += '<table style="width: 100%; border-collapse: collapse; font-size: 14px; background-color: white;">';
+                metricTableHTML += '<thead>';
+                metricTableHTML += '<tr style="background-color: #f5f5f5; border-bottom: 2px solid #ddd;">';
+                metricTableHTML += '<th style="padding: 12px; text-align: left; border: 1px solid #ddd; font-weight: 600;">Metric Name</th>';
+                metricTableHTML += '<th style="padding: 12px; text-align: center; border: 1px solid #ddd; font-weight: 600; width: 150px;">Follower Count</th>';
+                metricTableHTML += '</tr>';
+                metricTableHTML += '</thead>';
+                metricTableHTML += '<tbody>';
+                
+                result.metric_table.forEach((row, index) => {
+                    const bgColor = index % 2 === 0 ? '#fff' : '#f9f9f9';
+                    metricTableHTML += '<tr style="background-color: ' + bgColor + ';">';
+                    metricTableHTML += '<td style="padding: 10px; border: 1px solid #ddd;">' + row.metric_name + '</td>';
+                    metricTableHTML += '<td style="padding: 10px; border: 1px solid #ddd; text-align: center;">' + row.follower_count + '</td>';
+                    metricTableHTML += '</tr>';
+                });
+                
+                metricTableHTML += '</tbody>';
+                metricTableHTML += '</table>';
+                metricTableHTML += '</div>';
+                metricTableHTML += '</div>';
+                
+                resultsHTML += metricTableHTML;
+                console.log('Metric table HTML added, length:', metricTableHTML.length);
+            } else {
+                console.log('No metric table data to display');
+            }
+            
+            console.log('Final HTML length:', resultsHTML.length);
+            console.log('HTML contains user table?', resultsHTML.includes('👥 User Subscriptions'));
+            console.log('HTML contains metric table?', resultsHTML.includes('📊 Metric Followers'));
+            
+            resultsDiv.innerHTML = resultsHTML;
+            document.getElementById('results').style.display = 'block';
+            
+            console.log('Results div after update:', resultsDiv.innerHTML.substring(0, 500));
         }
 
         // Show error
@@ -1579,10 +2005,390 @@
             reader.readAsText(file);
         }
 
+        async function submitAnalytics(event) {
+            event.preventDefault();
+            
+            const formData = new FormData(event.target);
+            const data = Object.fromEntries(formData.entries());
+            
+            // Clear previous results and show new progress
+            clearPreviousResults();
+            showProgress('📈 Generating analytics...', '📈 Pulse Analytics');
+            
+            try {
+                const response = await fetch('/pulse-analytics', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Hide progress and show analytics dashboard
+                    document.getElementById('results').style.display = 'none';
+                    displayAnalytics(result.analytics);
+                } else {
+                    showError(result.error || 'Unknown error occurred', '❌ Analytics generation failed', result);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showError('Failed to communicate with server: ' + error.message, '❌ Analytics generation failed');
+            }
+        }
+        
+        function displayAnalytics(analytics) {
+            const analyticsResults = document.getElementById('analyticsResults');
+            const summary = analytics.summary;
+            
+            // Debug logging
+            console.log('Analytics data received:', analytics);
+            console.log('Top metrics:', analytics.top_metrics);
+            console.log('Top definitions:', analytics.top_definitions);
+            console.log('Top datasources:', analytics.top_datasources);
+            
+            // Show the analytics results section
+            analyticsResults.style.display = 'block';
+            analyticsResults.scrollIntoView({ behavior: 'smooth' });
+            
+            // Display summary cards
+            const summaryDiv = document.getElementById('analyticsSummary');
+            summaryDiv.innerHTML = `
+                <div style="background: rgba(78, 205, 196, 0.2); padding: 20px; border-radius: 10px; text-align: center;">
+                    <div style="font-size: 2.5em; font-weight: bold; color: #4ECDC4;">${summary.total_definitions}</div>
+                    <div style="margin-top: 10px;">Definitions</div>
+                </div>
+                <div style="background: rgba(255, 229, 93, 0.2); padding: 20px; border-radius: 10px; text-align: center;">
+                    <div style="font-size: 2.5em; font-weight: bold; color: #FFE55D;">${summary.total_metrics}</div>
+                    <div style="margin-top: 10px;">Metrics</div>
+                </div>
+                <div style="background: rgba(255, 107, 107, 0.2); padding: 20px; border-radius: 10px; text-align: center;">
+                    <div style="font-size: 2.5em; font-weight: bold; color: #FF6B6B;">${summary.total_subscriptions}</div>
+                    <div style="margin-top: 10px;">Subscriptions</div>
+                </div>
+                <div style="background: rgba(200, 214, 229, 0.2); padding: 20px; border-radius: 10px; text-align: center;">
+                    <div style="font-size: 2.5em; font-weight: bold; color: #C8D6E5;">${summary.unique_followers}</div>
+                    <div style="margin-top: 10px;">Unique Followers</div>
+                </div>
+                <div style="background: rgba(40, 167, 69, 0.2); padding: 20px; border-radius: 10px; text-align: center;">
+                    <div style="font-size: 2.5em; font-weight: bold; color: #28a745;">${summary.certified_definitions}</div>
+                    <div style="margin-top: 10px;">Certified</div>
+                </div>
+                <div style="background: rgba(108, 92, 231, 0.2); padding: 20px; border-radius: 10px; text-align: center;">
+                    <div style="font-size: 2.5em; font-weight: bold; color: #6C5CE7;">${summary.unique_datasources}</div>
+                    <div style="margin-top: 10px;">Datasources</div>
+                </div>
+            `;
+            
+            // Display top metrics
+            const topMetricsSection = document.getElementById('topMetricsSection');
+            
+            console.log('Processing top metrics, count:', analytics.top_metrics?.length);
+            
+            let topMetricsHTML = '';
+            if (analytics.top_metrics && analytics.top_metrics.length > 0) {
+                topMetricsHTML = analytics.top_metrics.map((metric, index) => `
+                    <tr>
+                        <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${index + 1}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${metric.name || metric.definition_name || 'Unknown'}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${metric.is_default ? '✅ Yes' : 'No'}</td>
+                        <td style="font-weight: bold; color: #4ECDC4; padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${metric.follower_count || 0}</td>
+                    </tr>
+                `).join('');
+            } else {
+                topMetricsHTML = '<tr><td colspan="4" style="padding: 20px; text-align: center;">No metrics found</td></tr>';
+            }
+            
+            topMetricsSection.innerHTML = `
+                <h4>🏆 Top 10 Most Followed Metrics</h4>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; background: rgba(255, 255, 255, 0.05); border-radius: 10px;">
+                        <thead>
+                            <tr style="background: rgba(78, 205, 196, 0.2);">
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">#</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Metric Name</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Default</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Followers</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${topMetricsHTML}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            // Display top definitions
+            const topDefinitionsSection = document.getElementById('topDefinitionsSection');
+            
+            console.log('Processing top definitions, count:', analytics.top_definitions?.length);
+            
+            let topDefinitionsHTML = '';
+            if (analytics.top_definitions && analytics.top_definitions.length > 0) {
+                topDefinitionsHTML = analytics.top_definitions.map((def, index) => `
+                    <tr>
+                        <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${index + 1}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${def.name || 'Unnamed'}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${def.is_certified ? '✅ Yes' : 'No'}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${def.metric_count || 0}</td>
+                        <td style="font-weight: bold; color: #FFE55D; padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${def.total_followers || 0}</td>
+                    </tr>
+                `).join('');
+            } else {
+                topDefinitionsHTML = '<tr><td colspan="5" style="padding: 20px; text-align: center;">No definitions found</td></tr>';
+            }
+            
+            topDefinitionsSection.innerHTML = `
+                <h4>📊 Top 10 Definitions by Total Followers</h4>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; background: rgba(255, 255, 255, 0.05); border-radius: 10px;">
+                        <thead>
+                            <tr style="background: rgba(255, 229, 93, 0.2);">
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">#</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Definition Name</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Certified</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Metrics</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Total Followers</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${topDefinitionsHTML}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            // Display top datasources
+            const topDatasourcesSection = document.getElementById('topDatasourcesSection');
+            
+            console.log('Processing top datasources, count:', analytics.top_datasources?.length);
+            
+            let topDatasourcesHTML = '';
+            if (analytics.top_datasources && analytics.top_datasources.length > 0) {
+                topDatasourcesHTML = analytics.top_datasources.map((ds, index) => `
+                    <tr>
+                        <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${index + 1}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${ds.name || ds.id || 'Unknown'}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${ds.definition_count || 0}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${ds.metric_count || 0}</td>
+                        <td style="font-weight: bold; color: #6C5CE7; padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${ds.follower_count || 0}</td>
+                    </tr>
+                `).join('');
+            } else {
+                topDatasourcesHTML = '<tr><td colspan="5" style="padding: 20px; text-align: center;">No datasources found</td></tr>';
+            }
+            
+            topDatasourcesSection.innerHTML = `
+                <h4>🗄️ Top 10 Datasources by Usage</h4>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; background: rgba(255, 255, 255, 0.05); border-radius: 10px;">
+                        <thead>
+                            <tr style="background: rgba(108, 92, 231, 0.2);">
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">#</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Datasource Name</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Definitions</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Metrics</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255, 255, 255, 0.1);">Total Followers</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${topDatasourcesHTML}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        async function submitTCMLogs(event) {
+            event.preventDefault();
+            
+            const formData = new FormData(event.target);
+            const data = Object.fromEntries(formData.entries());
+            
+            // Clear previous results and show new progress
+            clearPreviousResults();
+            showProgress('📋 Fetching TCM activity logs...', '📋 TCM Activity Logs Results');
+            
+            try {
+                const response = await fetch('/tcm-activity-logs', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+                
+                console.log('TCM Result:', result);
+                console.log('User table:', result.user_table);
+                console.log('Metric table:', result.metric_table);
+                
+                if (result.success) {
+                    showTCMResults(result, '✅ Activity logs analyzed successfully!');
+                } else {
+                    showError(result.error || 'Unknown error occurred', '❌ TCM activity log retrieval failed', result);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showError('Failed to communicate with server: ' + error.message, '❌ TCM activity log retrieval failed');
+            }
+        }
+
+        // Toggle auth fields for export definitions
+        function toggleExportAuthFields() {
+            const authMethod = document.getElementById('export_auth_method').value;
+            const userAuth = document.getElementById('export_user_auth');
+            const patAuth = document.getElementById('export_pat_auth');
+            
+            userAuth.style.display = authMethod === 'username' ? 'block' : 'none';
+            patAuth.style.display = authMethod === 'pat' ? 'block' : 'none';
+        }
+
+        // Submit export definitions form
+        async function submitExportDefinitions(event) {
+            event.preventDefault();
+            
+            const formData = new FormData(event.target);
+            const data = Object.fromEntries(formData.entries());
+            
+            // Clear previous results and show progress
+            clearPreviousResults();
+            showProgress('📑 Exporting definitions...', '📑 Export Definitions Results');
+            
+            try {
+                const response = await fetch('/export-definitions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+                
+                console.log('Export Result:', result);
+                
+                if (result.success) {
+                    showExportDefinitionsResults(result, '✅ Definitions exported successfully!');
+                } else {
+                    showError(result.error || 'Unknown error occurred', '❌ Definition export failed', result);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showError('Failed to communicate with server: ' + error.message, '❌ Definition export failed');
+            }
+        }
+
+        // Show export definitions results
+        function showExportDefinitionsResults(result, completionMessage = '✅ Export completed!') {
+            const progressDiv = document.getElementById('progress');
+            const resultsDiv = document.getElementById('copyResults');
+            
+            progressDiv.innerHTML = completionMessage;
+            
+            let resultsHTML = '';
+            
+            // Show progress messages
+            if (result.results && result.results.length > 0) {
+                result.results.forEach(r => {
+                    const className = r.success ? 'success' : 'error';
+                    resultsHTML += `<div class="result-item ${className}">${r.message}</div>`;
+                });
+            }
+            
+            // Show summary
+            if (result.summary) {
+                resultsHTML += `
+                    <div class="result-item">
+                        <strong>📊 Summary:</strong><br>
+                        ${result.summary}
+                    </div>
+                `;
+            }
+            
+            // Show definitions table and download button
+            if (result.csv_data && result.csv_data.length > 0) {
+                // Store data globally for CSV download
+                window.exportDefinitionsData = result.csv_data;
+                window.exportDefinitionsContent = result.csv_content;
+                window.exportMode = result.export_mode;
+                
+                let tableHTML = '<div class="result-item" style="margin-top: 20px; padding: 15px; background-color: white; border-radius: 8px;">';
+                tableHTML += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">';
+                tableHTML += '<h3 style="margin: 0; color: #333;">📊 Definitions (' + result.csv_data.length + ' total)</h3>';
+                tableHTML += '<button onclick="downloadDefinitionsCSV()" class="button" style="padding: 8px 16px; font-size: 14px;">📥 Download CSV</button>';
+                tableHTML += '</div>';
+                tableHTML += '<div style="overflow-x: auto; max-height: 400px; overflow-y: auto;">';
+                tableHTML += '<table style="width: 100%; border-collapse: collapse; font-size: 12px; background-color: white;">';
+                tableHTML += '<thead style="position: sticky; top: 0; z-index: 1;">';
+                tableHTML += '<tr style="background-color: #f5f5f5; border-bottom: 2px solid #ddd;">';
+                
+                // Get headers from first row
+                const headers = Object.keys(result.csv_data[0]);
+                headers.forEach(header => {
+                    tableHTML += '<th style="padding: 10px; text-align: left; border: 1px solid #ddd; font-weight: 600; white-space: nowrap;">' + header + '</th>';
+                });
+                tableHTML += '</tr></thead><tbody>';
+                
+                // Show first 50 rows for preview
+                const previewRows = result.csv_data.slice(0, 50);
+                previewRows.forEach((row, index) => {
+                    const bgColor = index % 2 === 0 ? '#fff' : '#f9f9f9';
+                    tableHTML += '<tr style="background-color: ' + bgColor + ';">';
+                    headers.forEach(header => {
+                        let value = row[header] || '';
+                        // Truncate long values
+                        if (value.length > 50) {
+                            value = value.substring(0, 47) + '...';
+                        }
+                        tableHTML += '<td style="padding: 8px; border: 1px solid #ddd; white-space: nowrap;">' + value + '</td>';
+                    });
+                    tableHTML += '</tr>';
+                });
+                
+                tableHTML += '</tbody></table></div>';
+                
+                if (result.csv_data.length > 50) {
+                    tableHTML += '<p style="margin-top: 10px; color: #666; font-size: 12px;">Showing first 50 of ' + result.csv_data.length + ' definitions. Download CSV for full data.</p>';
+                }
+                
+                if (result.csv_filename) {
+                    tableHTML += '<p style="margin-top: 10px; color: #28a745; font-size: 12px;">📁 File saved: ' + result.csv_filename + '</p>';
+                }
+                
+                tableHTML += '</div>';
+                resultsHTML += tableHTML;
+            }
+            
+            resultsDiv.innerHTML = resultsHTML;
+            document.getElementById('results').style.display = 'block';
+        }
+
+        // Download definitions as CSV
+        function downloadDefinitionsCSV() {
+            if (!window.exportDefinitionsContent) {
+                alert('No definitions data available to download');
+                return;
+            }
+            
+            const blob = new Blob([window.exportDefinitionsContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            link.href = URL.createObjectURL(blob);
+            link.download = `pulse_definitions_${window.exportMode || 'export'}_${timestamp}.csv`;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
         // Reset form and return to home
         function resetForm() {
             // Reset all forms
-            const forms = ['copyDefinitionsForm', 'manageFollowersForm', 'swapDatasourcesForm', 'updatePreferencesForm', 'checkCertifiedForm', 'bulkScopedForm'];
+            const forms = ['copyDefinitionsForm', 'manageFollowersForm', 'swapDatasourcesForm', 'updatePreferencesForm', 'checkCertifiedForm', 'bulkScopedForm', 'analyticsForm', 'tcmLogsForm', 'exportDefinitionsForm'];
             forms.forEach(formId => {
                 const form = document.getElementById(formId);
                 if (form) form.reset();
@@ -1590,6 +2396,10 @@
             
             // Clear all previous results
             clearPreviousResults();
+            
+            // Hide analytics results
+            const analyticsResults = document.getElementById('analyticsResults');
+            if (analyticsResults) analyticsResults.style.display = 'none';
             
             // Return to home
             showTab('home');

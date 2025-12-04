@@ -1,6 +1,6 @@
 # Tableau Pulse Utilities
 
-A comprehensive web application suite for managing Tableau Pulse with six powerful utilities, built with Python Flask and featuring a modern, responsive UI.
+A comprehensive web application suite for managing Tableau Pulse with seven powerful utilities, built with Python Flask and featuring a modern, responsive UI.
 
 ## 🚀 Available Utilities
 
@@ -46,6 +46,15 @@ Create multiple scoped metrics from a source metric with CSV upload support for 
 - **👥 Auto-assign Followers**: Automatically add followers by email when creating metrics
 - **🔍 Multiple Filters**: Create metrics with multiple dimension values in a single filter
 - Each new metric includes all filters from the source plus the new dimension filter(s)
+
+### 7. 📈 Pulse Analytics
+Get comprehensive insights and analytics about Pulse metric usage across your site
+- **📊 Overall Statistics**: Total definitions, metrics, subscriptions, and unique followers
+- **🏆 Top Metrics**: See which individual metrics have the most followers
+- **📈 Top Definitions**: Discover which metric definitions are most popular across all their metrics
+- **🗄️ Datasource Usage**: Understand which datasources are driving the most engagement
+- **✅ Certification Insights**: Track how many definitions are certified
+- **Interactive Dashboard**: Visual cards and sortable tables for easy analysis
 
 ## ✨ Common Features
 
@@ -245,6 +254,32 @@ hello-world-app/
    - Total Sales (Region=North)
    - Total Sales (Region=South)
 
+### 📈 Using Pulse Analytics
+1. **Server Connection**:
+   - Enter Tableau Server URL and API version
+   - Provide site content URL and authentication credentials
+
+2. **Generate Analytics**: Click "📈 Generate Analytics" and wait for data collection
+
+   The tool will:
+   - Retrieve all metric definitions on the site
+   - Collect all subscriptions/followers data
+   - Gather metrics for each definition
+   - Analyze datasource usage patterns
+   - Calculate statistics and rankings
+
+3. **View Results**: The analytics dashboard displays:
+   - **Summary Cards**: Quick overview of total definitions, metrics, subscriptions, unique followers, certified definitions, and unique datasources
+   - **Top 10 Most Followed Metrics**: Individual metrics ranked by follower count
+   - **Top 10 Definitions by Total Followers**: Metric definitions ranked by aggregate follower count across all their metrics
+   - **Top 10 Datasources by Usage**: Datasources ranked by total followers, showing definition count and metric count
+
+   **Use Cases**:
+   - Understand which metrics and definitions are getting the most adoption
+   - Identify underutilized datasources or definitions
+   - Track certification progress across your organization
+   - Make data-driven decisions about which metrics to promote or retire
+
 ## 🔌 API Endpoints
 
 - `GET /` - Main utilities selection interface
@@ -255,6 +290,7 @@ hello-world-app/
 - `POST /update-preferences` - Update user preferences for Pulse
 - `POST /check-certified-metrics` - Check certified metrics and remove unauthorized certifications
 - `POST /bulk-create-scoped-metrics` - Create multiple scoped metrics from a source metric
+- `POST /pulse-analytics` - Generate comprehensive analytics about Pulse usage
 
 ## Customization
 
@@ -299,7 +335,7 @@ hello-world-app/
 
 ## 🎯 What's Included
 
-This application suite includes six powerful utilities for managing Tableau Pulse:
+This application suite includes seven powerful utilities for managing Tableau Pulse:
 
 ### Available Utilities:
 1. **Pulse Definition Copier** - Copy definitions between sites
@@ -308,6 +344,7 @@ This application suite includes six powerful utilities for managing Tableau Puls
 4. **Update User Preferences** - Update Pulse user preferences
 5. **Check Certified Metrics** - View and manage metric certifications
 6. **Bulk Create Scoped Metrics** - Create multiple scoped metrics with dimension filters
+7. **Pulse Analytics** - Get comprehensive insights into metric usage and follower engagement
 
 ### Benefits of the Web Interface:
 - **🌐 No CLI Required**: Everything runs through the web browser
@@ -316,7 +353,7 @@ This application suite includes six powerful utilities for managing Tableau Puls
 - **🔒 Security**: Credentials are handled securely without persistent storage
 - **🚀 Enhanced Functionality**: Same power as the original CLI scripts with improved usability
 - **📱 Accessibility**: Works on any device with a web browser
-- **🏠 Unified Interface**: All six utilities in one convenient location
+- **🏠 Unified Interface**: All seven utilities in one convenient location
 
 ### Technical Features:
 - Modern Flask web framework
@@ -326,4 +363,4 @@ This application suite includes six powerful utilities for managing Tableau Puls
 - Beautiful, responsive UI with animations
 - Support for both JSON and XML API authentication methods
 
-Transform your Tableau Pulse management workflow with this powerful web application suite! 🚀📊👥🔄⚙️✅📊
+Transform your Tableau Pulse management workflow with this powerful web application suite! 🚀📊👥🔄⚙️✅📊📈

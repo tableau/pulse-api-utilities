@@ -7,8 +7,18 @@ import traceback
 import copy
 import csv
 import io
-from urllib.parse import urlparse
+import os
+from urllib.parse import urlparse, quote
 from typing import List, Dict, Optional
+from datetime import datetime, timedelta
+
+# Tableau Hyper API
+try:
+    from tableauhyperapi import HyperProcess, Connection, TableDefinition, SqlType, Telemetry, Inserter, CreateMode, TableName
+    HYPER_AVAILABLE = True
+except ImportError:
+    HYPER_AVAILABLE = False
+    print("WARNING: tableauhyperapi not installed. Hyper extract generation will be disabled.")
 
 # Create Flask application instance
 app = Flask(__name__)
@@ -70,6 +80,28 @@ def get_datasource_id_rest(host, token, site_id, datasource_name):
         if ds["name"] == datasource_name:
             return ds["id"]
     raise ValueError(f"Datasource '{datasource_name}' not found")
+
+def get_all_datasources_rest(host, token, site_id, api_version):
+    """Get all datasources on the site and return ID-to-name mapping"""
+    url = f"{host}/api/{api_version}/sites/{site_id}/datasources?pageSize=1000"
+    headers = {"X-Tableau-Auth": token, "Accept": "application/json"}
+    
+    try:
+        r = requests.get(url, headers=headers)
+        r.raise_for_status()
+        ds_list = r.json().get("datasources", {}).get("datasource", [])
+        
+        # Build ID to name mapping
+        datasource_map = {}
+        for ds in ds_list:
+            ds_id = ds.get("id")
+            ds_name = ds.get("name", "Unnamed Datasource")
+            if ds_id:
+                datasource_map[ds_id] = ds_name
+        
+        return {'success': True, 'datasources': datasource_map}
+    except Exception as e:
+        return {'success': False, 'error': f"Error getting datasources: {str(e)}"}
 
 # ------------------------------
 # Pulse API: definitions/metrics
@@ -440,7 +472,7 @@ def get_users_in_group_rest(server_url, auth_token, site_id, group_id, api_versi
 
 def get_metric_definitions_rest(server_url, auth_token):
     """Get all metric definitions including certification status."""
-    endpoint = f"{server_url}/api/-/pulse/definitions"
+    endpoint = f"{server_url}/api/-/pulse/definitions?page_size=1000"
     
     headers = {
         'X-Tableau-Auth': auth_token,
@@ -453,6 +485,12 @@ def get_metric_definitions_rest(server_url, auth_token):
         
         if response.status_code == 200:
             response_data = response.json()
+            
+            # Log pagination info if present
+            total = response_data.get('total_available') or response_data.get('total')
+            if total:
+                print(f"DEBUG: Definitions API returned {total} total definitions available")
+            
             return parse_metric_definitions(response_data)
         else:
             return {'success': False, 'error': f"Failed to get definitions. Status: {response.status_code}"}
@@ -485,21 +523,24 @@ def parse_metric_definitions(data):
             if is_certified:
                 certified_count += 1
             
-            # Extract metadata
+            # Extract metadata for easy access
             metadata = definition.get('metadata', {})
-            certifier_luid = certification.get('modified_by', '')
             
-            definition_info = {
-                'id': metadata.get('id', ''),
-                'name': metadata.get('name', ''),
-                'certified': is_certified,
-                'certification_note': certification.get('note', ''),
-                'certified_by': certification.get('modified_by', 'Unknown'),
-                'certified_at': certification.get('modified_at', ''),
-                'certified_by_luid': certifier_luid
-            }
+            # Keep the full definition structure but flatten key fields for easy access
+            definition_with_cert = definition.copy()
+            definition_with_cert['id'] = metadata.get('id', '')
+            definition_with_cert['name'] = metadata.get('name', '')
+            definition_with_cert['certified'] = is_certified
             
-            definitions.append(definition_info)
+            # Also add extracted certification details for easy access
+            definition_with_cert['certification_note'] = certification.get('note', '')
+            definition_with_cert['certified_by'] = certification.get('modified_by', 'Unknown')
+            definition_with_cert['certified_at'] = certification.get('modified_at', '')
+            definition_with_cert['certified_by_luid'] = certification.get('modified_by', '')
+            
+            definitions.append(definition_with_cert)
+        
+        print(f"DEBUG: Parsed {len(definitions)} definitions from API response")
         
         return {
             'success': True,
@@ -562,6 +603,55 @@ def get_metric_details_rest(server_url, auth_token, metric_id):
             
     except Exception as e:
         return {'success': False, 'error': f"Error getting metric: {str(e)}"}
+
+def get_all_metrics_for_definition_rest(server_url, auth_token, definition_id):
+    """Get all metrics for a specific definition."""
+    url = f"{server_url}/api/-/pulse/metrics?definition_id={definition_id}&page_size=1000"
+    
+    headers = {
+        'X-Tableau-Auth': auth_token,
+        'Accept': 'application/json'
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, verify=True)
+        
+        print(f"DEBUG: Metrics API response status for {definition_id}: {response.status_code}")
+        
+        if response.status_code == 200:
+            response_data = response.json()
+            metrics = response_data.get('metrics', [])
+            print(f"DEBUG: Metrics API returned {len(metrics)} metrics for {definition_id}")
+            if metrics:
+                print(f"DEBUG: First metric ID: {metrics[0].get('id', 'Unknown')}")
+            return {'success': True, 'metrics': metrics}
+        else:
+            print(f"DEBUG: Metrics API error: {response.text}")
+            return {'success': False, 'error': f"Failed to get metrics. Status: {response.status_code}", 'response': response.text}
+            
+    except Exception as e:
+        print(f"DEBUG: Exception getting metrics: {str(e)}")
+        return {'success': False, 'error': f"Error getting metrics: {str(e)}"}
+
+def get_all_subscriptions_rest(server_url, auth_token):
+    """Get all subscriptions on the site."""
+    url = f"{server_url}/api/-/pulse/subscriptions?page_size=1000"
+    
+    headers = {
+        'X-Tableau-Auth': auth_token,
+        'Accept': 'application/json'
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, verify=True)
+        
+        if response.status_code == 200:
+            return {'success': True, 'subscriptions': response.json().get('subscriptions', [])}
+        else:
+            return {'success': False, 'error': f"Failed to get subscriptions. Status: {response.status_code}"}
+            
+    except Exception as e:
+        return {'success': False, 'error': f"Error getting subscriptions: {str(e)}"}
 
 def create_scoped_metric_rest(server_url, auth_token, definition_id, metric_specification):
     """Create a new scoped metric using getOrCreate endpoint."""
@@ -808,6 +898,628 @@ def update_pulse_preferences(server_url, auth_token, user_luid, preferences, cur
             
     except Exception as e:
         return {'success': False, 'error': f'Error updating preferences: {str(e)}'}
+
+# ------------------------------
+# Tableau Hyper Extract Functions
+# ------------------------------
+
+def publish_hyper_file(server_url, site_id, auth_token, project_name, datasource_name, hyper_file_path, api_version='3.19'):
+    """
+    Publish a Hyper file as a datasource to Tableau Cloud/Server.
+    Based on: https://github.com/tableau/hyper-api-samples/tree/main/Community-Supported/publish-multi-table-hyper
+    
+    Args:
+        server_url: Tableau server URL
+        site_id: Site ID
+        auth_token: Authentication token
+        project_name: Project name where datasource will be published
+        datasource_name: Name for the published datasource
+        hyper_file_path: Path to the .hyper file
+        api_version: Tableau API version
+    
+    Returns:
+        dict: {'success': bool, 'datasource_id': str, 'error': str}
+    """
+    try:
+        # Step 1: Get ALL projects (including nested ones) with pagination
+        all_projects = []
+        page_number = 1
+        page_size = 1000  # Max page size
+        
+        while True:
+            projects_url = f"{server_url}/api/{api_version}/sites/{site_id}/projects?pageSize={page_size}&pageNumber={page_number}"
+            print(f"DEBUG: Fetching projects page {page_number}: {projects_url}")
+            
+            projects_response = requests.get(
+                projects_url,
+                headers={'X-Tableau-Auth': auth_token},
+                verify=True,
+                timeout=30
+            )
+            
+            if projects_response.status_code != 200:
+                return {
+                    'success': False,
+                    'error': f'Failed to get projects: {projects_response.status_code}'
+                }
+            
+            projects_data = ET.fromstring(projects_response.content)
+            
+            # Parse pagination info
+            pagination = projects_data.find('.//t:pagination', {'t': 'http://tableau.com/api'})
+            
+            # Collect projects from this page
+            page_projects = []
+            for project in projects_data.findall('.//t:project', {'t': 'http://tableau.com/api'}):
+                proj_name = project.get('name')
+                proj_id = project.get('id')
+                parent_id = project.get('parentProjectId')
+                
+                project_info = {
+                    'name': proj_name,
+                    'id': proj_id,
+                    'parentProjectId': parent_id
+                }
+                all_projects.append(project_info)
+                page_projects.append(proj_name)
+            
+            print(f"DEBUG: Page {page_number} returned {len(page_projects)} projects")
+            
+            # Check if there are more pages
+            if pagination is not None:
+                total_available = int(pagination.get('totalAvailable', 0))
+                page_size_returned = int(pagination.get('pageSize', page_size))
+                
+                if page_number * page_size_returned >= total_available:
+                    break
+            else:
+                # No pagination element means all results returned
+                break
+            
+            page_number += 1
+        
+        print(f"DEBUG: Total projects fetched: {len(all_projects)}")
+        print(f"DEBUG: Sample project names: {[p['name'] for p in all_projects[:5]]}")
+        
+        # Find the project by name (exact match first)
+        project_id = None
+        for project in all_projects:
+            if project['name'] == project_name:
+                project_id = project['id']
+                print(f"DEBUG: Found exact match: '{project['name']}' -> ID: {project_id}")
+                break
+        
+        # If no exact match, try case-insensitive and trimmed
+        if not project_id:
+            project_name_lower = project_name.lower().strip()
+            for project in all_projects:
+                if project['name'] and project['name'].lower().strip() == project_name_lower:
+                    project_id = project['id']
+                    print(f"DEBUG: Found case-insensitive match: '{project['name']}' -> ID: {project_id}")
+                    break
+        
+        if not project_id:
+            all_project_names = [p['name'] for p in all_projects]
+            print(f"DEBUG: Available projects ({len(all_project_names)}): {all_project_names}")
+            return {
+                'success': False,
+                'error': f'Project "{project_name}" not found. Available projects: {", ".join(all_project_names[:20])}'
+            }
+        
+        # Step 2: Build multipart request
+        publish_url = f"{server_url}/api/{api_version}/sites/{site_id}/datasources"
+        
+        # Create the XML payload
+        xml_payload = f"""<?xml version='1.0' encoding='UTF-8'?>
+<tsRequest>
+    <datasource name='{datasource_name}'>
+        <project id='{project_id}' />
+    </datasource>
+</tsRequest>"""
+        
+        # Read the Hyper file
+        with open(hyper_file_path, 'rb') as f:
+            hyper_data = f.read()
+        
+        # Create multipart form data
+        boundary = '----WebKitFormBoundary7MA4YWxkTrZu0gW'
+        
+        body_parts = []
+        
+        # Part 1: XML payload
+        body_parts.append(f'--{boundary}'.encode())
+        body_parts.append(b'Content-Disposition: form-data; name="request_payload"')
+        body_parts.append(b'Content-Type: text/xml')
+        body_parts.append(b'')
+        body_parts.append(xml_payload.encode('utf-8'))
+        
+        # Part 2: Hyper file
+        body_parts.append(f'--{boundary}'.encode())
+        body_parts.append(f'Content-Disposition: form-data; name="tableau_datasource"; filename="{os.path.basename(hyper_file_path)}"'.encode())
+        body_parts.append(b'Content-Type: application/octet-stream')
+        body_parts.append(b'')
+        body_parts.append(hyper_data)
+        
+        # End boundary
+        body_parts.append(f'--{boundary}--'.encode())
+        
+        body = b'\r\n'.join(body_parts)
+        
+        # Step 3: Publish the datasource
+        headers = {
+            'X-Tableau-Auth': auth_token,
+            'Content-Type': f'multipart/mixed; boundary={boundary}'
+        }
+        
+        publish_response = requests.post(
+            publish_url,
+            data=body,
+            headers=headers,
+            verify=True,
+            timeout=120
+        )
+        
+        if publish_response.status_code in [200, 201]:
+            response_data = ET.fromstring(publish_response.content)
+            datasource = response_data.find('.//t:datasource', {'t': 'http://tableau.com/api'})
+            
+            if datasource is not None:
+                datasource_id = datasource.get('id')
+                datasource_web_url = datasource.find('.//t:webpageUrl', {'t': 'http://tableau.com/api'})
+                web_url = datasource_web_url.text if datasource_web_url is not None else None
+                
+                return {
+                    'success': True,
+                    'datasource_id': datasource_id,
+                    'web_url': web_url
+                }
+        
+        return {
+            'success': False,
+            'error': f'Publish failed: {publish_response.status_code} - {publish_response.text}'
+        }
+        
+    except Exception as e:
+        return {
+            'success': False,
+            'error': f'Failed to publish datasource: {str(e)}',
+            'traceback': traceback.format_exc()
+        }
+
+def create_multi_table_hyper_extract(tables_data, output_path):
+    """
+    Create a Tableau Hyper extract with multiple unrelated tables.
+    
+    Args:
+        tables_data: List of dicts with keys:
+                    - 'table_name': Name of the table
+                    - 'columns': List of tuples (column_name, SqlType, dict_key)
+                    - 'data': List of dictionaries with data
+        output_path: Path to save .hyper file
+    
+    Returns:
+        dict: {'success': bool, 'file_path': str, 'table_counts': dict, 'error': str}
+    """
+    if not HYPER_AVAILABLE:
+        return {
+            'success': False,
+            'error': 'tableauhyperapi not installed. Run: pip install tableauhyperapi'
+        }
+    
+    try:
+        print(f"DEBUG: Creating multi-table Hyper extract with {len(tables_data)} tables")
+        
+        table_counts = {}
+        
+        # Start a new private local Hyper instance
+        with HyperProcess(Telemetry.DO_NOT_SEND_USAGE_DATA_TO_TABLEAU, 'pulse-api-utilities') as hyper:
+            
+            # Create the .hyper file, replace it if it already exists
+            with Connection(endpoint=hyper.endpoint,
+                          create_mode=CreateMode.CREATE_AND_REPLACE,
+                          database=output_path) as connection:
+                
+                # Create the schema
+                connection.catalog.create_schema('Extract')
+                
+                # Process each table
+                for table_info in tables_data:
+                    table_name = table_info['table_name']
+                    column_definitions = table_info['columns']
+                    data_rows = table_info['data']
+                    
+                    print(f"DEBUG: Creating table '{table_name}' with {len(data_rows)} rows")
+                    
+                    # Create the table definition
+                    columns = [TableDefinition.Column(col_name, sql_type) for col_name, sql_type, _ in column_definitions]
+                    schema = TableDefinition(
+                        table_name=TableName('Extract', table_name),
+                        columns=columns
+                    )
+                    
+                    # Create the table in the connection catalog
+                    connection.catalog.create_table(schema)
+                    
+                    # Insert data using Inserter for better performance
+                    with Inserter(connection, schema) as inserter:
+                        for row in data_rows:
+                            row_values = [row.get(dict_key) for _, _, dict_key in column_definitions]
+                            inserter.add_row(row_values)
+                        inserter.execute()
+                    
+                    # Count rows
+                    row_count = connection.execute_scalar_query(f"SELECT COUNT(*) FROM {schema.table_name}")
+                    table_counts[table_name] = row_count
+                    print(f"DEBUG: Table '{table_name}' has {row_count} rows")
+        
+        print(f"DEBUG: Multi-table Hyper extract created successfully")
+        return {
+            'success': True,
+            'file_path': output_path,
+            'table_counts': table_counts
+        }
+        
+    except Exception as e:
+        print(f"ERROR creating multi-table Hyper extract: {str(e)}")
+        print(traceback.format_exc())
+        return {
+            'success': False,
+            'error': f'Failed to create multi-table Hyper extract: {str(e)}',
+            'traceback': traceback.format_exc()
+        }
+
+def create_hyper_extract_from_data(data_rows, column_definitions, output_path, table_name='Extract'):
+    """
+    Create a Tableau Hyper extract from data rows.
+    
+    Args:
+        data_rows: List of dictionaries with data
+        column_definitions: List of tuples (column_name, SqlType, dict_key)
+                           where dict_key is the actual key in the data dictionary
+        output_path: Path to save .hyper file
+        table_name: Name of the table in the extract
+    
+    Returns:
+        dict: {'success': bool, 'file_path': str, 'error': str}
+    """
+    if not HYPER_AVAILABLE:
+        return {
+            'success': False,
+            'error': 'tableauhyperapi not installed. Run: pip install tableauhyperapi'
+        }
+    
+    try:
+        print(f"DEBUG: Creating Hyper extract with {len(data_rows)} rows")
+        if data_rows:
+            print(f"DEBUG: First row keys: {list(data_rows[0].keys())}")
+            print(f"DEBUG: First row data: {data_rows[0]}")
+        
+        # Step 1: Start a new private local Hyper instance
+        with HyperProcess(Telemetry.DO_NOT_SEND_USAGE_DATA_TO_TABLEAU, 'pulse-api-utilities') as hyper:
+            
+            # Step 2: Create the .hyper file, replace it if it already exists
+            with Connection(endpoint=hyper.endpoint,
+                          create_mode=CreateMode.CREATE_AND_REPLACE,
+                          database=output_path) as connection:
+                
+                # Step 3: Create the schema
+                connection.catalog.create_schema('Extract')
+                
+                # Step 4: Create the table definition
+                columns = [TableDefinition.Column(col_name, sql_type) for col_name, sql_type, _ in column_definitions]
+                schema = TableDefinition(
+                    table_name=TableName('Extract', table_name),
+                    columns=columns
+                )
+                
+                # Step 5: Create the table in the connection catalog
+                connection.catalog.create_table(schema)
+                
+                # Step 6: Insert data using Inserter for better performance
+                with Inserter(connection, schema) as inserter:
+                    for row in data_rows:
+                        # Use the dict_key (third element) to get the actual value from the row
+                        row_values = [row.get(dict_key) for _, _, dict_key in column_definitions]
+                        print(f"DEBUG: Inserting row values: {row_values}")
+                        inserter.add_row(row_values)
+                    inserter.execute()
+                
+                row_count = connection.execute_scalar_query(f"SELECT COUNT(*) FROM {schema.table_name}")
+                print(f"DEBUG: Final row count in Hyper: {row_count}")
+                
+        return {
+            'success': True,
+            'file_path': output_path,
+            'row_count': row_count
+        }
+        
+    except Exception as e:
+        print(f"ERROR creating Hyper extract: {str(e)}")
+        print(traceback.format_exc())
+        return {
+            'success': False,
+            'error': f'Failed to create Hyper extract: {str(e)}',
+            'traceback': traceback.format_exc()
+        }
+
+# ------------------------------
+# Tableau Cloud Manager (TCM) Functions
+# ------------------------------
+
+def tcm_login(tcm_uri, pat_token):
+    """Login to Tableau Cloud Manager and get session token."""
+    url = f"{tcm_uri}/api/v1/pat/login"
+    
+    headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    }
+    
+    payload = {
+        'token': pat_token
+    }
+    
+    try:
+        print(f"DEBUG: Attempting TCM login to: {url}")
+        print(f"DEBUG: Payload: {json.dumps({'token': '***REDACTED***'})}")
+        
+        response = requests.post(url, headers=headers, json=payload, verify=True)
+        
+        print(f"DEBUG: TCM login response status: {response.status_code}")
+        print(f"DEBUG: TCM login response headers: {dict(response.headers)}")
+        
+        try:
+            response_json = response.json()
+            print(f"DEBUG: TCM login response body: {json.dumps(response_json, indent=2)}")
+        except:
+            print(f"DEBUG: TCM login response body (not JSON): {response.text}")
+        
+        if response.status_code == 200:
+            response_data = response.json()
+            session_token = response_data.get('sessionToken')
+            tenant_id = response_data.get('tenantId')
+            
+            if session_token and tenant_id:
+                print(f"DEBUG: Successfully got session token and tenant_id: {tenant_id}")
+                return {
+                    'success': True,
+                    'session_token': session_token,
+                    'tenant_id': tenant_id
+                }
+            else:
+                return {'success': False, 'error': 'Missing sessionToken or tenantId in response', 'response': response.text}
+        else:
+            return {
+                'success': False,
+                'error': f"Login failed. Status: {response.status_code}",
+                'response': response.text
+            }
+    except Exception as e:
+        tb = traceback.format_exc()
+        print(f"DEBUG: Exception during TCM login: {tb}")
+        return {'success': False, 'error': f"Error during TCM login: {str(e)}", 'traceback': tb}
+
+def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start_time, end_time, event_type=None, max_pages=50):
+    """Get list of activity log file paths - Step 1: GET request with pagination support."""
+    all_file_paths = []
+    page_token = None
+    page_count = 0
+    
+    headers = {
+        'x-tableau-session-token': session_token,
+        'Accept': 'application/json'
+    }
+    
+    try:
+        while True:
+            page_count += 1
+            
+            # Safety limit to prevent timeouts
+            if page_count > max_pages:
+                print(f"WARNING: Reached max pages limit ({max_pages}), stopping pagination")
+                print(f"WARNING: Collected {len(all_file_paths)} file paths so far")
+                # Mark as partial and return what we have
+                return {
+                    'success': True,
+                    'file_paths': all_file_paths,
+                    'raw_response': {'partial': True, 'message': f'Stopped at page limit ({max_pages})'},
+                    'page_count': page_count,
+                    'partial': True,
+                    'hit_limit': True
+                }
+            
+            # Build URL with pagination token if available - URL encode the datetime strings
+            encoded_start = quote(start_time, safe='')
+            encoded_end = quote(end_time, safe='')
+            url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/sites/{site_id}/activitylog?startTime={encoded_start}&endTime={encoded_end}"
+            
+            # Note: eventType filter will be applied client-side after getting results
+            # The API may not support server-side filtering
+            
+            if page_token:
+                # Don't encode pageToken - it's base64 and should be passed as-is
+                url += f"&pageToken={page_token}"
+            
+            print(f"DEBUG: Getting activity log paths (page {page_count})")
+            print(f"DEBUG: URL: {url}")
+            print(f"DEBUG: Filtering for event_type: {event_type if event_type else 'None (all events)'}")
+            
+            # Add timeout to prevent hanging
+            response = requests.get(url, headers=headers, verify=True, timeout=30)
+            
+            print(f"DEBUG: Get paths response status (page {page_count}): {response.status_code}")
+            
+            # Check for empty response or 403 on pagination (can signal end of results)
+            if not response.text or response.text.strip() == '':
+                print(f"DEBUG: Empty response on page {page_count}, ending pagination")
+                break
+            
+            # If 403 on a page > 1, treat as end of pagination (some APIs do this)
+            if response.status_code == 403 and page_count > 1:
+                print(f"DEBUG: Got 403 on page {page_count}, treating as end of pagination")
+                print(f"DEBUG: Collected {len(all_file_paths)} file paths from previous pages")
+                break
+            
+            # Other non-200 errors on first page should fail
+            if response.status_code != 200:
+                return {
+                    'success': False,
+                    'error': f"Failed to get file paths. Status: {response.status_code}",
+                    'response': response.text
+                }
+            
+            response_data = response.json()
+            
+            print(f"DEBUG: Response keys on page {page_count}: {response_data.keys()}")
+            
+            # The response should contain file paths
+            file_paths = response_data.get('filePaths', []) or response_data.get('files', []) or response_data.get('paths', [])
+            
+            print(f"DEBUG: Raw file paths on page {page_count}: {len(file_paths)}")
+            
+            # Filter by event type if specified (client-side filtering)
+            if event_type and file_paths:
+                filtered_paths = []
+                for fp in file_paths:
+                    # Extract path string
+                    if isinstance(fp, dict):
+                        path = fp.get('path', '')
+                    else:
+                        path = fp
+                    
+                    # Check if path contains the event type
+                    if f'/eventType={event_type}/' in path:
+                        filtered_paths.append(fp)
+                
+                print(f"DEBUG: After filtering for '{event_type}': {len(filtered_paths)} file paths")
+                if page_count == 1 and filtered_paths:
+                    print(f"DEBUG: First filtered path: {filtered_paths[0]}")
+                file_paths = filtered_paths
+            else:
+                print(f"DEBUG: No filtering applied")
+                if file_paths and page_count == 1:
+                    print(f"DEBUG: First file path: {file_paths[0]}")
+            
+            print(f"DEBUG: Total collected so far: {len(all_file_paths) + len(file_paths)}")
+            
+            all_file_paths.extend(file_paths)
+            
+            # Check for pagination token
+            page_token = response_data.get('pageToken')
+            if not page_token:
+                print(f"DEBUG: No more pages, total file paths: {len(all_file_paths)}")
+                break
+            
+            print(f"DEBUG: More pages available, continuing...")
+        
+        return {
+            'success': True,
+            'file_paths': all_file_paths,
+            'raw_response': response_data,  # Last page response
+            'page_count': page_count
+        }
+    except requests.exceptions.Timeout:
+        print(f"ERROR: Request timed out after page {page_count}")
+        if all_file_paths:
+            # Return partial results
+            return {
+                'success': True,
+                'file_paths': all_file_paths,
+                'raw_response': {'partial': True, 'message': f'Timeout after page {page_count}'},
+                'page_count': page_count,
+                'partial': True
+            }
+        else:
+            return {'success': False, 'error': f"Request timed out on page {page_count}"}
+    except Exception as e:
+        tb = traceback.format_exc()
+        print(f"DEBUG: Exception getting paths: {tb}")
+        if all_file_paths:
+            # Return partial results if we got some data
+            return {
+                'success': True,
+                'file_paths': all_file_paths,
+                'raw_response': {'partial': True, 'error': str(e)},
+                'page_count': page_count,
+                'partial': True
+            }
+        return {'success': False, 'error': f"Error getting activity log paths: {str(e)}"}
+
+def tcm_get_download_urls(tcm_uri, session_token, tenant_id, site_id, file_paths):
+    """Get download URLs for activity log files - Step 2: POST request."""
+    url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/sites/{site_id}/activitylog"
+    
+    headers = {
+        'x-tableau-session-token': session_token,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    }
+    
+    # If file_paths contains dicts with a 'path' or 'file' key, extract them
+    processed_paths = []
+    for fp in file_paths:
+        if isinstance(fp, dict):
+            # It's a dict, try to get the actual path
+            processed_paths.append(fp.get('path') or fp.get('file') or fp.get('filePath'))
+        else:
+            # It's already a string
+            processed_paths.append(fp)
+    
+    print(f"DEBUG: Original file_paths count: {len(file_paths)}")
+    print(f"DEBUG: Processed file_paths count: {len(processed_paths)}")
+    if processed_paths:
+        print(f"DEBUG: First processed path: {processed_paths[0]}")
+    
+    payload = {
+        'tenantId': tenant_id,
+        'files': processed_paths
+    }
+    
+    try:
+        print(f"DEBUG: Posting to get download URLs: {url}")
+        print(f"DEBUG: Sending {len(file_paths)} original file paths")
+        print(f"DEBUG: Processed {len(processed_paths)} file paths for POST")
+        
+        response = requests.post(url, headers=headers, json=payload, verify=True, timeout=60)
+        
+        print(f"DEBUG: Get URLs response status: {response.status_code}")
+        
+        if response.status_code in [200, 201, 202]:
+            response_data = response.json()
+            # Response should contain 'url' key with download URLs
+            return {
+                'success': True,
+                'data': response_data
+            }
+        else:
+            return {
+                'success': False,
+                'error': f"Failed to get download URLs. Status: {response.status_code}",
+                'response': response.text
+            }
+    except Exception as e:
+        tb = traceback.format_exc()
+        print(f"DEBUG: Exception getting download URLs: {tb}")
+        return {'success': False, 'error': f"Error getting download URLs: {str(e)}"}
+
+def tcm_download_log_file(download_url, session_token=None):
+    """Download a single activity log file - Step 3: Download from S3 pre-signed URL."""
+    # S3 pre-signed URLs don't need authentication headers
+    try:
+        print(f"DEBUG: Downloading from URL (first 100 chars): {download_url[:100]}...")
+        response = requests.get(download_url, verify=True, stream=True)
+        
+        if response.status_code == 200:
+            # Return the content as text
+            return {'success': True, 'content': response.text}
+        else:
+            return {
+                'success': False,
+                'error': f"Download failed. Status: {response.status_code}",
+                'response': response.text
+            }
+    except Exception as e:
+        return {'success': False, 'error': f"Error downloading log file: {str(e)}"}
 
 # ------------------------------
 # Flask Routes
@@ -1977,6 +2689,1332 @@ def bulk_create_scoped_metrics():
         # Get full stack trace
         tb_str = traceback.format_exc()
         print(f"ERROR in bulk_create_scoped_metrics: {tb_str}")  # Log to console
+        
+        return jsonify({
+            'success': False,
+            'error': f'Unexpected error: {str(e)}',
+            'traceback': tb_str,
+            'error_type': type(e).__name__
+        })
+
+@app.route('/pulse-analytics', methods=['POST'])
+def pulse_analytics():
+    """Generate analytics about Pulse metrics, followers, definitions, and datasources"""
+    try:
+        data = request.json
+        results = []
+        
+        # Extract form data
+        server_url = data.get('server_url', '').rstrip('/')
+        api_version = data.get('api_version', '3.26')
+        site_content_url = data.get('site_content_url', '')
+        auth_method = data.get('auth_method')
+        
+        # Authentication data
+        username = data.get('username')
+        password = data.get('password')
+        pat_name = data.get('pat_name')
+        pat_token = data.get('pat_token')
+        
+        # Validate required fields
+        if not all([server_url, auth_method]):
+            return jsonify({
+                'success': False,
+                'error': 'Missing required fields: server_url and auth_method are required'
+            })
+        
+        results.append({'success': True, 'message': '🚀 Starting Pulse Analytics...'})
+        
+        # Authenticate
+        results.append({'success': True, 'message': '🔐 Authenticating with Tableau Server...'})
+        
+        auth_result = authenticate_tableau_rest(
+            server_url, api_version, site_content_url, auth_method,
+            username, password, pat_name, pat_token
+        )
+        
+        if not auth_result['success']:
+            return jsonify({
+                'success': False,
+                'error': f"Authentication failed: {auth_result['error']}"
+            })
+        
+        auth_token = auth_result['auth_token']
+        site_id = auth_result.get('site_id', '')
+        results.append({'success': True, 'message': '✅ Authentication successful!'})
+        
+        # Get all datasources for name mapping
+        results.append({'success': True, 'message': '🗄️ Retrieving datasource names...'})
+        datasources_result = get_all_datasources_rest(server_url, auth_token, site_id, api_version)
+        
+        datasource_id_to_name = {}
+        if datasources_result['success']:
+            datasource_id_to_name = datasources_result['datasources']
+            results.append({'success': True, 'message': f'✅ Found {len(datasource_id_to_name)} datasources'})
+        else:
+            results.append({'success': True, 'message': f'⚠️  Could not retrieve datasource names: {datasources_result.get("error")}'})
+        
+        # Get all definitions
+        results.append({'success': True, 'message': '📊 Retrieving all metric definitions...'})
+        definitions_result = get_metric_definitions_rest(server_url, auth_token)
+        
+        if not definitions_result['success']:
+            return jsonify({
+                'success': False,
+                'error': f"Failed to get definitions: {definitions_result['error']}"
+            })
+        
+        definitions = definitions_result.get('definitions', [])
+        results.append({'success': True, 'message': f'✅ Found {len(definitions)} metric definitions'})
+        
+        # Debug: log first definition structure
+        if definitions:
+            print(f"DEBUG: First definition structure: {json.dumps(definitions[0], indent=2)}")
+        
+        # Get all subscriptions
+        results.append({'success': True, 'message': '👥 Retrieving all subscriptions...'})
+        subscriptions_result = get_all_subscriptions_rest(server_url, auth_token)
+        
+        if not subscriptions_result['success']:
+            return jsonify({
+                'success': False,
+                'error': f"Failed to get subscriptions: {subscriptions_result['error']}"
+            })
+        
+        all_subscriptions = subscriptions_result.get('subscriptions', [])
+        results.append({'success': True, 'message': f'✅ Found {len(all_subscriptions)} total subscriptions'})
+        
+        # Debug: log first subscription structure
+        if all_subscriptions:
+            print(f"DEBUG: First subscription structure: {json.dumps(all_subscriptions[0], indent=2)}")
+        
+        # Extract unique metric IDs from subscriptions
+        results.append({'success': True, 'message': '📈 Extracting metric IDs from subscriptions...'})
+        
+        unique_metric_ids = set()
+        for sub in all_subscriptions:
+            metric_id = sub.get('metric_id')
+            if metric_id:
+                unique_metric_ids.add(metric_id)
+        
+        results.append({'success': True, 'message': f'✅ Found {len(unique_metric_ids)} unique metric IDs'})
+        
+        # Fetch details for each unique metric
+        results.append({'success': True, 'message': '📊 Retrieving metric details...'})
+        
+        all_metrics = []
+        definition_metrics_map = {}
+        
+        for i, metric_id in enumerate(unique_metric_ids, 1):
+            metric_result = get_metric_details_rest(server_url, auth_token, metric_id)
+            
+            if metric_result['success']:
+                metric = metric_result['metric']
+                all_metrics.append(metric)
+                
+                # Map metric to its definition
+                def_id = metric.get('definition_id')
+                if def_id:
+                    if def_id not in definition_metrics_map:
+                        definition_metrics_map[def_id] = []
+                    definition_metrics_map[def_id].append(metric)
+                
+                if i % 25 == 0 or i == len(unique_metric_ids):
+                    results.append({'success': True, 'message': f'  Progress: {i}/{len(unique_metric_ids)} metrics retrieved...'})
+        
+        results.append({'success': True, 'message': f'✅ Retrieved {len(all_metrics)} metric details'})
+        
+        # Debug: log first metric structure
+        if all_metrics:
+            print(f"DEBUG: First metric structure: {json.dumps(all_metrics[0], indent=2)}")
+            print(f"DEBUG: Sample metric has definition_id: {all_metrics[0].get('definition_id')}")
+            
+        # Also check if any metrics have definition_ids not in our definitions list
+        metric_def_ids = set(m.get('definition_id') for m in all_metrics if m.get('definition_id'))
+        definition_ids = set(d.get('id') for d in definitions if d.get('id'))
+        missing_def_ids = metric_def_ids - definition_ids
+        
+        if missing_def_ids:
+            print(f"DEBUG: WARNING - Found {len(missing_def_ids)} definition IDs in metrics that are not in definitions list:")
+            print(f"DEBUG: Missing definition IDs: {list(missing_def_ids)[:5]}")  # Show first 5
+        
+        # Build analytics data structures
+        results.append({'success': True, 'message': '🔍 Analyzing data...'})
+        
+        # Map metric_id to subscription count
+        metric_follower_count = {}
+        unique_followers = set()
+        
+        for sub in all_subscriptions:
+            metric_id = sub.get('metric_id')
+            user_id = sub.get('follower', {}).get('user_id')
+            
+            if metric_id:
+                metric_follower_count[metric_id] = metric_follower_count.get(metric_id, 0) + 1
+            
+            if user_id:
+                unique_followers.add(user_id)
+        
+        # Build metric details with follower counts and names
+        metrics_with_followers = []
+        definition_id_to_name = {d.get('id'): d.get('name', 'Unnamed') for d in definitions}
+        
+        print(f"DEBUG: Definition ID to name map has {len(definition_id_to_name)} entries")
+        
+        for metric in all_metrics:
+            metric_id = metric.get('id')
+            follower_count = metric_follower_count.get(metric_id, 0)
+            definition_id = metric.get('definition_id')
+            
+            # Try to get definition name from our map first
+            definition_name = definition_id_to_name.get(definition_id)
+            
+            # If not found, try to get it from the metric's metadata
+            if not definition_name:
+                # Metrics might have metadata with the definition name
+                metric_metadata = metric.get('metadata', {})
+                definition_name = metric_metadata.get('name') or metric_metadata.get('definition_name')
+                
+                if definition_name:
+                    print(f"DEBUG: Found definition name '{definition_name}' in metric metadata for definition_id {definition_id}")
+                else:
+                    print(f"DEBUG: Could not find definition name for definition_id {definition_id}, metric_id {metric_id}")
+                    definition_name = 'Unknown Definition'
+            
+            # Build metric name: Definition name + (Default) or (Scoped)
+            is_default = metric.get('is_default', False)
+            metric_name = definition_name
+            if is_default:
+                metric_name += " (Default)"
+            else:
+                # Check if it has filters to indicate it's scoped
+                filters = metric.get('specification', {}).get('filters', [])
+                if filters:
+                    metric_name += " (Scoped)"
+            
+            metrics_with_followers.append({
+                'id': metric_id,
+                'name': metric_name,
+                'definition_id': definition_id,
+                'definition_name': definition_name,
+                'follower_count': follower_count,
+                'is_default': is_default
+            })
+        
+        print(f"DEBUG: Total metrics with followers built: {len(metrics_with_followers)}")
+        print(f"DEBUG: Metric follower count map size: {len(metric_follower_count)}")
+        print(f"DEBUG: Sample follower counts: {list(metric_follower_count.items())[:5]}")
+        
+        # Sort metrics by follower count
+        top_metrics = sorted(metrics_with_followers, key=lambda x: x['follower_count'], reverse=True)[:10]
+        
+        print(f"DEBUG: Top metrics count: {len(top_metrics)}")
+        if top_metrics:
+            print(f"DEBUG: Top metric sample: {top_metrics[0]}")
+        
+        # Build definition analytics
+        definition_analytics = []
+        datasource_usage = {}
+        
+        for definition in definitions:
+            def_id = definition.get('id', 'Unknown')
+            def_name = definition.get('name', 'Unnamed')
+            
+            # Get datasource ID - try different possible locations
+            def_datasource_id = None
+            
+            # Try specification.datasource.id first (most common location)
+            if 'specification' in definition and 'datasource' in definition['specification']:
+                spec_ds = definition['specification']['datasource']
+                if isinstance(spec_ds, dict):
+                    def_datasource_id = spec_ds.get('id') or spec_ds.get('luid')
+                else:
+                    def_datasource_id = str(spec_ds)
+            
+            # Fall back to direct datasource field
+            if not def_datasource_id and 'datasource' in definition and definition['datasource']:
+                if isinstance(definition['datasource'], dict):
+                    def_datasource_id = definition['datasource'].get('id') or definition['datasource'].get('luid')
+                else:
+                    def_datasource_id = str(definition['datasource'])
+            
+            # Last resort
+            if not def_datasource_id:
+                def_datasource_id = definition.get('datasource_id', 'Unknown')
+            
+            is_certified = definition.get('certified', False)
+            
+            # Count metrics and followers for this definition
+            def_metrics = definition_metrics_map.get(def_id, [])
+            total_followers = sum([metric_follower_count.get(m.get('id'), 0) for m in def_metrics])
+            
+            definition_analytics.append({
+                'id': def_id,
+                'name': def_name,
+                'datasource_id': def_datasource_id,
+                'is_certified': is_certified,
+                'metric_count': len(def_metrics),
+                'total_followers': total_followers
+            })
+            
+            # Track datasource usage
+            if def_datasource_id and def_datasource_id != 'Unknown':
+                if def_datasource_id not in datasource_usage:
+                    datasource_usage[def_datasource_id] = {
+                        'definition_count': 0,
+                        'metric_count': 0,
+                        'follower_count': 0
+                    }
+                
+                datasource_usage[def_datasource_id]['definition_count'] += 1
+                datasource_usage[def_datasource_id]['metric_count'] += len(def_metrics)
+                datasource_usage[def_datasource_id]['follower_count'] += total_followers
+        
+        print(f"DEBUG: Definition analytics count: {len(definition_analytics)}")
+        if definition_analytics:
+            print(f"DEBUG: Sample definition analytics: {definition_analytics[0]}")
+        
+        print(f"DEBUG: Datasource usage count: {len(datasource_usage)}")
+        if datasource_usage:
+            print(f"DEBUG: Sample datasource: {list(datasource_usage.items())[0]}")
+        
+        # Sort definitions by total followers
+        top_definitions = sorted(definition_analytics, key=lambda x: x['total_followers'], reverse=True)[:10]
+        
+        # Sort datasources by usage and add names
+        top_datasources = sorted(
+            [{'id': ds_id, 'name': datasource_id_to_name.get(ds_id, ds_id), **stats} for ds_id, stats in datasource_usage.items()],
+            key=lambda x: x['follower_count'],
+            reverse=True
+        )[:10]
+        
+        print(f"DEBUG: Top definitions count: {len(top_definitions)}")
+        print(f"DEBUG: Top datasources count: {len(top_datasources)}")
+        
+        # Build summary
+        results.append({'success': True, 'message': '✅ Analysis complete!'})
+        
+        analytics_data = {
+            'summary': {
+                'total_definitions': len(definitions),
+                'total_metrics': len(all_metrics),
+                'total_subscriptions': len(all_subscriptions),
+                'unique_followers': len(unique_followers),
+                'certified_definitions': sum(1 for d in definitions if d.get('certified', False)),
+                'unique_datasources': len(datasource_usage)
+            },
+            'top_metrics': top_metrics,
+            'top_definitions': top_definitions,
+            'top_datasources': top_datasources,
+            'definition_details': definition_analytics
+        }
+        
+        return jsonify({
+            'success': True,
+            'results': results,
+            'analytics': analytics_data,
+            'summary': f"✅ Analytics generated successfully! Found {len(definitions)} definitions, {len(all_metrics)} metrics, {len(all_subscriptions)} subscriptions from {len(unique_followers)} unique users"
+        })
+        
+    except Exception as e:
+        # Get full stack trace
+        tb_str = traceback.format_exc()
+        print(f"ERROR in pulse_analytics: {tb_str}")
+        
+        return jsonify({
+            'success': False,
+            'error': f'Unexpected error: {str(e)}',
+            'traceback': tb_str,
+            'error_type': type(e).__name__
+        })
+
+@app.route('/export-definitions', methods=['POST'])
+def export_definitions():
+    """Export Pulse metric definitions to CSV with configurable detail level"""
+    try:
+        data = request.json
+        results = []
+        
+        # Extract form data
+        server_url = data.get('server_url', '').rstrip('/')
+        api_version = data.get('api_version', '3.26')
+        site_content_url = data.get('site_content_url', '')
+        auth_method = data.get('auth_method')
+        export_mode = data.get('export_mode', 'basic')  # 'basic' or 'verbose'
+        
+        # Authentication data
+        username = data.get('username')
+        password = data.get('password')
+        pat_name = data.get('pat_name')
+        pat_token = data.get('pat_token')
+        
+        # Validate required fields
+        if not all([server_url, auth_method]):
+            return jsonify({
+                'success': False,
+                'error': 'Missing required fields: server_url and auth_method are required'
+            })
+        
+        results.append({'success': True, 'message': '🚀 Starting Definition Export...'})
+        results.append({'success': True, 'message': f'📋 Export mode: {export_mode.upper()}'})
+        
+        # Authenticate
+        results.append({'success': True, 'message': '🔐 Authenticating with Tableau Server...'})
+        
+        auth_result = authenticate_tableau_rest(
+            server_url, api_version, site_content_url, auth_method,
+            username, password, pat_name, pat_token
+        )
+        
+        if not auth_result['success']:
+            return jsonify({
+                'success': False,
+                'error': f"Authentication failed: {auth_result['error']}"
+            })
+        
+        auth_token = auth_result['auth_token']
+        site_id = auth_result.get('site_id', '')
+        results.append({'success': True, 'message': '✅ Authentication successful!'})
+        
+        # Get all definitions
+        results.append({'success': True, 'message': '📊 Fetching metric definitions...'})
+        
+        definitions_url = f"{server_url}/api/-/pulse/definitions?page_size=1000"
+        headers = {'X-Tableau-Auth': auth_token, 'Accept': 'application/json'}
+        
+        response = requests.get(definitions_url, headers=headers, verify=True, timeout=30)
+        
+        if response.status_code != 200:
+            return jsonify({
+                'success': False,
+                'error': f"Failed to fetch definitions: {response.status_code}"
+            })
+        
+        definitions_data = response.json()
+        definitions = (definitions_data.get('metric_definitions', []) or 
+                      definitions_data.get('definitions', []) or [])
+        
+        results.append({'success': True, 'message': f'✅ Found {len(definitions)} definitions'})
+        
+        # Get datasource names for mapping
+        results.append({'success': True, 'message': '🗄️ Fetching datasource names...'})
+        datasources_result = get_all_datasources_rest(server_url, auth_token, site_id, api_version)
+        datasource_map = {}
+        if datasources_result['success']:
+            datasource_map = datasources_result.get('datasources', {})
+        
+        # Process definitions and build CSV data
+        results.append({'success': True, 'message': '📝 Processing definitions...'})
+        
+        csv_rows = []
+        basic_count = 0
+        viz_state_count = 0
+        
+        for definition in definitions:
+            metadata = definition.get('metadata', {})
+            spec = definition.get('specification', {})
+            extension_opts = definition.get('extension_options', {})
+            representation_opts = definition.get('representation_options', {})
+            insights_opts = definition.get('insights_options', {})
+            comparisons = definition.get('comparisons', {})
+            certification = definition.get('certification', {})
+            
+            # Determine definition type
+            is_viz_state = 'viz_state_specification' in spec
+            if is_viz_state:
+                viz_state_count += 1
+            else:
+                basic_count += 1
+            
+            # Get basic_specification or empty dict
+            basic_spec = spec.get('basic_specification', {})
+            
+            # Get datasource info
+            datasource_info = spec.get('datasource', {})
+            datasource_id = datasource_info.get('id', '') if isinstance(datasource_info, dict) else str(datasource_info)
+            datasource_name = datasource_map.get(datasource_id, datasource_id)
+            
+            # Build row based on mode and type - Name first, then core fields
+            row = {
+                'Name': metadata.get('name', '')
+            }
+            
+            # For basic definitions (not viz-state), add measure, time dimension, filters
+            if not is_viz_state:
+                # Measure
+                measure = basic_spec.get('measure', {})
+                aggregation = measure.get('aggregation', '')
+                measure_field = measure.get('field', '')
+                row['Measure'] = f"{aggregation}({measure_field})" if measure_field else aggregation
+                
+                # Time Dimension
+                time_dim = basic_spec.get('time_dimension', {})
+                row['Time Dimension'] = time_dim.get('field', '')
+                
+                # Filters
+                filters = basic_spec.get('filters', [])
+                filter_strs = []
+                for f in filters:
+                    field = f.get('field', '')
+                    operator = f.get('operator', '').replace('OPERATOR_', '')
+                    values = f.get('categorical_values', [])
+                    value_strs = [v.get('string_value', '') for v in values]
+                    filter_strs.append(f"{field} {operator} {', '.join(value_strs)}")
+                row['Definitional Filters'] = ' | '.join(filter_strs) if filter_strs else ''
+            else:
+                # For viz-state, leave these empty
+                row['Measure'] = '(Viz State)'
+                row['Time Dimension'] = '(Viz State)'
+                row['Definitional Filters'] = '(Viz State)'
+            
+            # Add type and ID after the core fields
+            row['Type'] = 'Viz State' if is_viz_state else 'Basic'
+            row['Definition ID'] = metadata.get('id', '')
+            
+            # Verbose fields (always include for both types)
+            if export_mode == 'verbose':
+                row['Description'] = metadata.get('description', '')
+                row['Datasource ID'] = datasource_id
+                row['Datasource Name'] = datasource_name
+                row['Is Running Total'] = str(spec.get('is_running_total', False))
+                
+                # Extension options
+                row['Allowed Dimensions'] = ', '.join(extension_opts.get('allowed_dimensions', []))
+                row['Allowed Granularities'] = ', '.join(extension_opts.get('allowed_granularities', []))
+                row['Offset From Today'] = str(extension_opts.get('offset_from_today', 0))
+                row['Use Dynamic Offset'] = str(extension_opts.get('use_dynamic_offset', False))
+                
+                # Representation options
+                row['Number Format'] = representation_opts.get('type', '').replace('NUMBER_FORMAT_TYPE_', '')
+                row['Sentiment Type'] = representation_opts.get('sentiment_type', '').replace('SENTIMENT_TYPE_', '')
+                row['Number Units'] = representation_opts.get('number_units', {}).get('singular_noun', '') if isinstance(representation_opts.get('number_units'), dict) else ''
+                
+                # Insights
+                row['Show Insights'] = str(insights_opts.get('show_insights', True))
+                
+                # Comparisons
+                comp_list = comparisons.get('comparisons', [])
+                comp_strs = []
+                for c in comp_list:
+                    comp_type = c.get('comparison', '').replace('COMPARISON_', '')
+                    comp_strs.append(comp_type)
+                row['Comparisons'] = ', '.join(comp_strs) if comp_strs else ''
+                
+                # Certification
+                row['Is Certified'] = str(certification.get('is_certified', False))
+                row['Certification Note'] = certification.get('note', '')
+                
+                # Related links
+                related_links = definition.get('related_links', [])
+                row['Related Links Count'] = str(len(related_links))
+                
+                # Goals
+                goals = definition.get('datasource_goals', [])
+                row['Goals Count'] = str(len(goals))
+                
+                # Metadata timestamps
+                row['Created At'] = metadata.get('created_at', '')
+                row['Modified At'] = metadata.get('modified_at', '')
+            
+            csv_rows.append(row)
+        
+        results.append({'success': True, 'message': f'  📊 Basic definitions: {basic_count}'})
+        results.append({'success': True, 'message': f'  🎨 Viz State definitions: {viz_state_count}'})
+        
+        # Generate CSV content
+        results.append({'success': True, 'message': '📄 Generating CSV...'})
+        
+        if not csv_rows:
+            return jsonify({
+                'success': True,
+                'results': results,
+                'summary': 'No definitions found',
+                'csv_data': [],
+                'csv_content': ''
+            })
+        
+        # Get column headers from first row
+        fieldnames = list(csv_rows[0].keys())
+        
+        # Create CSV content
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=fieldnames, delimiter='\t')
+        writer.writeheader()
+        for row in csv_rows:
+            writer.writerow(row)
+        
+        csv_content = output.getvalue()
+        
+        # Also save to file
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        csv_filename = f"pulse_definitions_{export_mode}_{timestamp}.csv"
+        csv_path = os.path.join(os.path.dirname(__file__), csv_filename)
+        
+        try:
+            with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+                f.write(csv_content)
+            results.append({'success': True, 'message': f'💾 Saved to: {csv_filename}'})
+        except Exception as e:
+            results.append({'success': False, 'message': f'⚠️ Could not save file: {str(e)}'})
+        
+        results.append({'success': True, 'message': '\n✅ Export complete!'})
+        
+        return jsonify({
+            'success': True,
+            'results': results,
+            'summary': f"Exported {len(csv_rows)} definitions ({basic_count} basic, {viz_state_count} viz-state)",
+            'csv_data': csv_rows,
+            'csv_content': csv_content,
+            'csv_filename': csv_filename,
+            'export_mode': export_mode
+        })
+        
+    except Exception as e:
+        tb_str = traceback.format_exc()
+        print(f"ERROR in export_definitions: {tb_str}")
+        
+        return jsonify({
+            'success': False,
+            'error': f'Unexpected error: {str(e)}',
+            'traceback': tb_str,
+            'error_type': type(e).__name__
+        })
+
+@app.route('/tcm-activity-logs', methods=['POST'])
+def tcm_activity_logs():
+    """Fetch Tableau Cloud Manager activity logs for a site"""
+    try:
+        data = request.json
+        results = []
+        
+        # Extract form data
+        tcm_uri = data.get('tcm_uri', '').rstrip('/')
+        pat_token = data.get('pat_token', '').strip()
+        site_luid = data.get('site_luid', '').strip()
+        
+        # Tableau credentials for Pulse API lookups
+        tableau_server = data.get('tableau_server', '').rstrip('/')
+        tableau_site_id = data.get('tableau_site_id', '').strip()
+        tableau_pat_name = data.get('tableau_pat_name', '').strip()
+        tableau_pat_token = data.get('tableau_pat_token', '').strip()
+        
+        # Date range selection
+        date_range_type = data.get('date_range_type', 'last_7_days')
+        
+        event_type = 'metric_subscription_change'  # Filter for subscription changes
+        
+        # Calculate date range based on selection
+        if date_range_type == 'last_7_days':
+            target_end_date = datetime.now()
+            target_start_date = target_end_date - timedelta(days=7)
+            date_label = 'Last 7 Days'
+        else:  # custom
+            start_date_str = data.get('start_date', '').strip()
+            end_date_str = data.get('end_date', '').strip()
+            
+            if not start_date_str or not end_date_str:
+                return jsonify({
+                    'success': False,
+                    'error': 'Custom date range requires both start and end dates'
+                })
+            
+            try:
+                target_start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+                target_end_date = datetime.strptime(end_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
+                date_label = f'{start_date_str} to {end_date_str}'
+            except ValueError as e:
+                return jsonify({
+                    'success': False,
+                    'error': f'Invalid date format: {str(e)}'
+                })
+        
+        # Validate required fields
+        if not all([tcm_uri, pat_token, site_luid, tableau_server, tableau_site_id, tableau_pat_name, tableau_pat_token]):
+            return jsonify({
+                'success': False,
+                'error': 'Missing required fields: all TCM and Tableau credentials are required'
+            })
+        
+        results.append({'success': True, 'message': f'🚀 Starting Tableau Cloud Manager activity log retrieval...'})
+        results.append({'success': True, 'message': f'📊 Site LUID: {site_luid}'})
+        results.append({'success': True, 'message': f'📅 Fetching logs: {date_label}'})
+        results.append({'success': True, 'message': f'🔍 Event type filter: {event_type}'})
+        
+        # Step 1: Login to TCM
+        results.append({'success': True, 'message': '🔐 Authenticating with Tableau Cloud Manager...'})
+        
+        login_result = tcm_login(tcm_uri, pat_token)
+        
+        if not login_result['success']:
+            return jsonify({
+                'success': False,
+                'error': f"TCM authentication failed: {login_result['error']}",
+                'response': login_result.get('response', '')
+            })
+        
+        session_token = login_result['session_token']
+        tenant_id = login_result['tenant_id']
+        
+        results.append({'success': True, 'message': f'✅ Authentication successful! Tenant ID: {tenant_id}'})
+        
+        # Step 2: Split into 7-day chunks (TCM API limit)
+        date_ranges = []
+        current_start = target_start_date
+        
+        print(f"\nDEBUG: Splitting date range:")
+        print(f"DEBUG: Start: {target_start_date}")
+        print(f"DEBUG: End: {target_end_date}")
+        print(f"DEBUG: Total days: {(target_end_date - target_start_date).days}")
+        
+        while current_start <= target_end_date:
+            # Each chunk is maximum 7 days (but TCM counts inclusive, so use 6.999 days)
+            chunk_end = min(current_start + timedelta(days=6, hours=23, minutes=59, seconds=59), target_end_date)
+            
+            # Make sure we don't create an empty range
+            if chunk_end < current_start:
+                break
+            
+            date_ranges.append({
+                'start': current_start.strftime('%Y-%m-%dT%H:%M:%S'),
+                'end': chunk_end.strftime('%Y-%m-%dT%H:%M:%S'),
+                'label': f'{current_start.strftime("%b %d")} - {chunk_end.strftime("%b %d, %Y")}'
+            })
+            
+            print(f"DEBUG: Chunk: {current_start.strftime('%Y-%m-%d')} to {chunk_end.strftime('%Y-%m-%d')}")
+            
+            # Move to next chunk (start day after previous chunk ended)
+            current_start = chunk_end + timedelta(days=1)
+            current_start = current_start.replace(hour=0, minute=0, second=0)
+        
+        results.append({'success': True, 'message': f'📅 Split into {len(date_ranges)} date range(s) (7-day API limit)'})
+        
+        print(f"\nDEBUG: Starting file path collection")
+        print(f"DEBUG: Event type filter: {event_type}")
+        print(f"DEBUG: Number of date ranges: {len(date_ranges)}")
+        
+        # Step 3: Fetch file paths from all date ranges
+        all_file_paths = []
+        
+        for i, date_range in enumerate(date_ranges, 1):
+            results.append({'success': True, 'message': f'📂 Range {i}/{len(date_ranges)}: {date_range["label"]}'})
+            
+            paths_result = tcm_get_activity_log_paths(
+                tcm_uri, session_token, tenant_id, site_luid, 
+                date_range['start'], date_range['end'], 
+                event_type=event_type
+            )
+            
+            if not paths_result['success']:
+                results.append({'success': False, 'message': f'  ❌ Failed: {paths_result["error"]}'})
+                continue
+            
+            range_file_paths = paths_result['file_paths']
+            all_file_paths.extend(range_file_paths)
+            results.append({'success': True, 'message': f'  ✅ Found {len(range_file_paths)} file(s) for this range'})
+        
+        print(f"\nDEBUG: Total file paths collected across all ranges: {len(all_file_paths)}")
+        if all_file_paths:
+            print(f"DEBUG: Sample file paths:")
+            for fp in all_file_paths[:3]:
+                if isinstance(fp, dict):
+                    print(f"  - {fp.get('path', fp)}")
+                else:
+                    print(f"  - {fp}")
+        
+        if not all_file_paths:
+            results.append({'success': True, 'message': f'⚠️  No logs found with eventType={event_type} for Oct 1-14, 2025'})
+            results.append({'success': True, 'message': 'ℹ️  This might mean:'})
+            results.append({'success': True, 'message': '  • No metric subscription changes occurred in this period'})
+            results.append({'success': True, 'message': '  • The site LUID is incorrect'})
+            results.append({'success': True, 'message': '  • The eventType filter needs adjustment'})
+            
+            return jsonify({
+                'success': True,
+                'results': results,
+                'summary': f'No {event_type} logs found for Oct 1-14, 2025',
+                'file_count': 0
+            })
+        
+        results.append({'success': True, 'message': f'\n✅ Total files to download: {len(all_file_paths)}'})
+        
+        # Step 4: Get download URLs (POST request)
+        results.append({'success': True, 'message': f'🔗 Getting download URLs for {len(all_file_paths)} file(s)...'})
+        
+        urls_result = tcm_get_download_urls(tcm_uri, session_token, tenant_id, site_luid, all_file_paths)
+        
+        if not urls_result['success']:
+            return jsonify({
+                'success': False,
+                'error': f"Failed to get download URLs: {urls_result['error']}",
+                'response': urls_result.get('response', '')
+            })
+        
+        # The response has a 'files' array, each with its own 'url'
+        response_data = urls_result['data']
+        files_with_urls = response_data.get('files', [])
+        
+        if not files_with_urls:
+            return jsonify({
+                'success': False,
+                'error': 'No files with download URLs found in response',
+                'response': json.dumps(response_data)
+            })
+        
+        results.append({'success': True, 'message': f'✅ Got download URLs for {len(files_with_urls)} file(s)'})
+        
+        # Step 5: Download each log file
+        results.append({'success': True, 'message': f'⬇️  Downloading {len(files_with_urls)} log file(s)...'})
+        
+        all_logs = []
+        downloaded_count = 0
+        failed_count = 0
+        
+        for i, file_obj in enumerate(files_with_urls, 1):
+            download_url = file_obj.get('url')
+            file_path = file_obj.get('path', f'file_{i}')
+            
+            if not download_url:
+                results.append({'success': False, 'message': f'  ⚠️  File {i}: No download URL'})
+                failed_count += 1
+                continue
+            
+            if i % 10 == 0:
+                results.append({'success': True, 'message': f'  [{i}/{len(files_with_urls)}] Downloading...'})
+            
+            download_result = tcm_download_log_file(download_url, session_token)
+            
+            if download_result['success']:
+                log_content = download_result['content']
+                all_logs.append(f"\n{'='*80}\n")
+                all_logs.append(f"LOG FILE: {file_path}\n")
+                all_logs.append(f"{'='*80}\n")
+                all_logs.append(log_content)
+                all_logs.append("\n")
+                
+                downloaded_count += 1
+            else:
+                failed_count += 1
+                if failed_count <= 5:  # Only show first 5 failures
+                    results.append({'success': False, 'message': f'  ❌ File {i} failed: {download_result["error"]}'})
+        
+        # Combine all logs
+        combined_logs = ''.join(all_logs)
+        results.append({'success': True, 'message': f'✅ Downloaded {downloaded_count}/{len(files_with_urls)} log file(s)'})
+        
+        # Step 6: Analyze the logs to extract subscription data
+        results.append({'success': True, 'message': '\n📊 Analyzing subscription changes...'})
+        
+        # Parse all logs to extract subscription events
+        subscription_events = []
+        for log_entry in all_logs:
+            if not log_entry.strip() or log_entry.startswith('=') or log_entry.startswith('LOG FILE:'):
+                continue
+            
+            # Each log line should be JSON
+            try:
+                lines = log_entry.strip().split('\n')
+                for line in lines:
+                    if line.strip() and not line.startswith('=') and not line.startswith('LOG FILE:'):
+                        try:
+                            event = json.loads(line.strip())
+                            subscription_events.append(event)
+                        except json.JSONDecodeError:
+                            continue
+            except Exception:
+                continue
+        
+        results.append({'success': True, 'message': f'  Found {len(subscription_events)} subscription events'})
+        
+        # Debug: Show sample events
+        if subscription_events:
+            print(f"\nDEBUG: Sample subscription event structure:")
+            sample = subscription_events[0]
+            print(f"  Keys: {list(sample.keys())}")
+            print(f"  Full event: {json.dumps(sample, indent=2)[:500]}")
+        else:
+            print(f"\nDEBUG: No subscription events parsed!")
+            print(f"DEBUG: Total log entries examined: {len(all_logs)}")
+            if all_logs:
+                print(f"DEBUG: First log entry (first 500 chars):")
+                print(all_logs[0][:500])
+        
+        # Extract unique user LUIDs and metric IDs
+        user_luids = set()
+        metric_ids = set()
+        
+        # Track subscriptions per user and followers per metric
+        user_metrics = {}  # user_luid -> set of metric_ids they're following
+        metric_followers = {}  # metric_id -> set of user_luids following it
+        
+        for event in subscription_events:
+            # Extract fields from TCM activity log format
+            actor_luid = event.get('actorUserLuid')
+            metric_id = event.get('scopedMetricId')
+            operation = event.get('subscriptionOperation', '')
+            
+            if not actor_luid or not metric_id:
+                continue
+            
+            user_luids.add(actor_luid)
+            metric_ids.add(metric_id)
+            
+            # Initialize if needed
+            if actor_luid not in user_metrics:
+                user_metrics[actor_luid] = set()
+            if metric_id not in metric_followers:
+                metric_followers[metric_id] = set()
+            
+            # Track subscription state based on operation
+            # FOLLOW_OPERATION_FOLLOW = subscribe
+            # FOLLOW_OPERATION_UNFOLLOW = unsubscribe
+            if 'FOLLOW' in operation and 'UNFOLLOW' not in operation:
+                user_metrics[actor_luid].add(metric_id)
+                metric_followers[metric_id].add(actor_luid)
+            elif 'UNFOLLOW' in operation:
+                user_metrics[actor_luid].discard(metric_id)
+                metric_followers[metric_id].discard(actor_luid)
+        
+        results.append({'success': True, 'message': f'  Unique users: {len(user_luids)}'})
+        results.append({'success': True, 'message': f'  Unique metrics: {len(metric_ids)}'})
+        
+        # Step 7: Authenticate with Tableau and look up names
+        results.append({'success': True, 'message': '\n🔍 Authenticating with Tableau for name lookups...'})
+        
+        # Authenticate with PAT
+        api_version = '3.19'  # Use current API version
+        tableau_auth = authenticate_tableau_rest(
+            tableau_server, api_version, tableau_site_id, 'pat',
+            pat_name=tableau_pat_name, pat_token=tableau_pat_token
+        )
+        
+        if not tableau_auth['success']:
+            results.append({'success': False, 'message': f'  ⚠️  Tableau auth failed: {tableau_auth["error"]}'})
+            results.append({'success': True, 'message': '  ℹ️  Continuing with IDs only...'})
+            user_name_map = {}
+            metric_name_map = {}
+        else:
+            auth_token = tableau_auth['auth_token']
+            site_id_returned = tableau_auth['site_id']
+            
+            results.append({'success': True, 'message': f'  ✅ Tableau authentication successful'})
+            
+            # Get all users to build LUID -> username map (with pagination)
+            results.append({'success': True, 'message': '  📋 Fetching users...'})
+            try:
+                user_name_map = {}
+                page_number = 1
+                page_size = 1000
+                
+                while True:
+                    users_url = f"{tableau_server}/api/{api_version}/sites/{site_id_returned}/users?pageSize={page_size}&pageNumber={page_number}"
+                    users_response = requests.get(users_url, headers={'X-Tableau-Auth': auth_token}, verify=True, timeout=30)
+                    
+                    if users_response.status_code == 200:
+                        users_data = ET.fromstring(users_response.content)
+                        
+                        # Get pagination info
+                        pagination = users_data.find('.//{http://tableau.com/api}pagination')
+                        total_available = int(pagination.get('totalAvailable', 0)) if pagination is not None else 0
+                        
+                        users_on_page = 0
+                        for user in users_data.findall('.//t:user', {'t': 'http://tableau.com/api'}):
+                            user_luid = user.get('id')
+                            username = user.get('name')
+                            if user_luid and username:
+                                user_name_map[user_luid] = username
+                                users_on_page += 1
+                        
+                        if page_number == 1:
+                            print(f"DEBUG: Total users available: {total_available}")
+                        
+                        # Check if we need more pages
+                        if len(user_name_map) >= total_available or users_on_page < page_size:
+                            break
+                        
+                        page_number += 1
+                    else:
+                        if page_number == 1:
+                            results.append({'success': False, 'message': f'  ⚠️  Failed to fetch users: {users_response.status_code}'})
+                            print(f"DEBUG: Users response: {users_response.text[:500]}")
+                        break
+                
+                results.append({'success': True, 'message': f'  ✅ Found {len(user_name_map)} users'})
+                print(f"DEBUG: User map sample (first 3): {list(user_name_map.items())[:3]}")
+                
+                # Check specific missing users
+                missing_luids = ['9c6289dd-2976-4398-b2fa-df752353975a', 'c3ea5aef-2b41-4e18-b0c4-ee309f9bf88a', 'e25e08e1-e9f5-4938-9be4-37aac23ed358']
+                for luid in missing_luids:
+                    if luid in user_name_map:
+                        print(f"DEBUG: Found user {luid}: {user_name_map[luid]}")
+                    else:
+                        print(f"DEBUG: User {luid} not in site's user list (may be from different site or deleted)")
+                
+            except Exception as e:
+                results.append({'success': False, 'message': f'  ⚠️  Error fetching users: {str(e)}'})
+                user_name_map = {}
+            
+            # Get all metric definitions to build metric_id -> name map
+            results.append({'success': True, 'message': '  📊 Fetching metric definitions...'})
+            try:
+                definitions_url = f"{tableau_server}/api/-/pulse/definitions?page_size=1000"
+                definitions_response = requests.get(definitions_url, headers={'X-Tableau-Auth': auth_token}, verify=True, timeout=30)
+                
+                print(f"DEBUG: Definitions API call: {definitions_url}")
+                print(f"DEBUG: Definitions response status: {definitions_response.status_code}")
+                
+                metric_name_map = {}
+                if definitions_response.status_code == 200:
+                    definitions_data = definitions_response.json()
+                    print(f"DEBUG: Definitions response keys: {list(definitions_data.keys())}")
+                    
+                    # Try different possible keys
+                    definitions = (definitions_data.get('metric_definitions', []) or 
+                                 definitions_data.get('definitions', []) or
+                                 definitions_data.get('data', []))
+                    
+                    print(f"DEBUG: Found {len(definitions)} definitions")
+                    if definitions:
+                        print(f"DEBUG: First definition keys: {list(definitions[0].keys())}")
+                        print(f"DEBUG: First definition: {definitions[0]}")
+                    else:
+                        print(f"DEBUG: Full response (first 500 chars): {str(definitions_data)[:500]}")
+                    
+                    # Need to get all metrics for each definition
+                    # For now, use definition names as metric names
+                    for definition in definitions:
+                        definition_id = definition.get('metadata', {}).get('id')
+                        definition_name = definition.get('metadata', {}).get('name')
+                        
+                        # Get metrics for this definition
+                        # Note: We're mapping metric IDs to their definition names
+                        # (In reality, metrics under same definition share the name)
+                        for metric_id in metric_ids:
+                            # This is a simplified approach - we'd need to call get metric details
+                            # for each unique metric_id to get its definition_id
+                            pass
+                    
+                    # Alternative: Get metric details for each unique metric_id
+                    print(f"DEBUG: Looking up {len(metric_ids)} metrics individually...")
+                    success_count = 0
+                    for i, metric_id in enumerate(metric_ids, 1):
+                        try:
+                            metric_url = f"{tableau_server}/api/-/pulse/metrics/{metric_id}"
+                            metric_response = requests.get(metric_url, headers={'X-Tableau-Auth': auth_token}, verify=True, timeout=10)
+                            
+                            if i <= 3:
+                                print(f"DEBUG: Metric {i} ({metric_id}): status {metric_response.status_code}")
+                            
+                            if metric_response.status_code == 200:
+                                metric_response_data = metric_response.json()
+                                
+                                # Unwrap if data is nested under 'metric' key
+                                if 'metric' in metric_response_data and isinstance(metric_response_data['metric'], dict):
+                                    metric_data = metric_response_data['metric']
+                                else:
+                                    metric_data = metric_response_data
+                                
+                                def_id = (metric_data.get('definition_id') or 
+                                         metric_data.get('metadata', {}).get('definition_id') or
+                                         metric_data.get('definition', {}).get('id'))
+                                
+                                if i <= 3:
+                                    print(f"DEBUG: Metric {i} definition_id: {def_id}")
+                                    print(f"DEBUG: Metric {i} data keys: {list(metric_data.keys())}")
+                                    if 'metadata' in metric_data:
+                                        print(f"DEBUG: Metric {i} metadata: {metric_data['metadata']}")
+                                
+                                # Try to get name directly from metric data first
+                                metric_name = (metric_data.get('metadata', {}).get('name') or
+                                             metric_data.get('name'))
+                                
+                                # If no direct name, find the definition name
+                                if not metric_name and def_id and definitions:
+                                    for definition in definitions:
+                                        def_def_id = definition.get('metadata', {}).get('id') or definition.get('id')
+                                        if def_def_id == def_id:
+                                            metric_name = definition.get('metadata', {}).get('name') or definition.get('name', 'Unknown')
+                                            break
+                                    else:
+                                        if i <= 3:
+                                            print(f"DEBUG: Metric {i} - definition {def_id} not found in definitions list")
+                                
+                                if metric_name:
+                                    # Check if it's a scoped metric
+                                    filters = metric_data.get('specification', {}).get('filters', [])
+                                    if filters:
+                                        metric_name += ' (Scoped)'
+                                    metric_name_map[metric_id] = metric_name
+                                    success_count += 1
+                                    if i <= 3:
+                                        print(f"DEBUG: Metric {i} mapped to: {metric_name}")
+                                else:
+                                    if i <= 3:
+                                        print(f"DEBUG: Metric {i} - could not extract name")
+                            else:
+                                if i <= 3:
+                                    print(f"DEBUG: Metric {i} fetch failed: {metric_response.text[:200]}")
+                        except Exception as e:
+                            if i <= 3:
+                                print(f"DEBUG: Metric {i} exception: {str(e)}")
+                            continue
+                    
+                    print(f"DEBUG: Successfully mapped {success_count}/{len(metric_ids)} metrics")
+                    
+                    results.append({'success': True, 'message': f'  ✅ Mapped {len(metric_name_map)}/{len(metric_ids)} metrics'})
+                    print(f"DEBUG: Metric map sample (first 3): {list(metric_name_map.items())[:3]}")
+                    print(f"DEBUG: Sample metric IDs from logs: {list(metric_ids)[:3]}")
+                else:
+                    results.append({'success': False, 'message': f'  ⚠️  Failed to fetch definitions: {definitions_response.status_code}'})
+                    print(f"DEBUG: Definitions response: {definitions_response.text[:500]}")
+                    metric_name_map = {}
+            except Exception as e:
+                results.append({'success': False, 'message': f'  ⚠️  Error fetching metrics: {str(e)}'})
+                metric_name_map = {}
+        
+        # Step 8: Create enriched reports for display
+        results.append({'success': True, 'message': '\n📊 Generating analysis reports...'})
+        
+        print(f"\nDEBUG: Creating reports...")
+        print(f"DEBUG: User name map has {len(user_name_map)} entries")
+        print(f"DEBUG: Metric name map has {len(metric_name_map)} entries")
+        print(f"DEBUG: Processing {len(user_metrics)} users and {len(metric_followers)} metrics")
+        
+        # Build user report data (username and count only)
+        user_report_data = []
+        for user_luid, metrics in sorted(user_metrics.items(), key=lambda x: -len(x[1])):
+            username = user_name_map.get(user_luid, f"Unknown User ({user_luid[:8]}...)")
+            if username == user_luid and len(user_report_data) < 3:
+                print(f"DEBUG: No username found for LUID: {user_luid}")
+            user_report_data.append({
+                'username': username,
+                'metrics_following': len(metrics)
+            })
+        
+        # Build metric report data (metric name and follower count only)
+        metric_report_data = []
+        for metric_id, followers in sorted(metric_followers.items(), key=lambda x: -len(x[1])):
+            metric_name = metric_name_map.get(metric_id, f"Unknown Metric ({metric_id[:8]}...)")
+            if metric_name == metric_id and len(metric_report_data) < 3:
+                print(f"DEBUG: No metric name found for ID: {metric_id}")
+            metric_report_data.append({
+                'metric_name': metric_name,
+                'follower_count': len(followers)
+            })
+        
+        results.append({'success': True, 'message': f'  ✅ Generated user report ({len(user_report_data)} users)'})
+        results.append({'success': True, 'message': f'  ✅ Generated metric report ({len(metric_report_data)} metrics)'})
+        
+        # Step 9: Create Hyper extracts
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        date_file_label = date_label.replace(' ', '_').replace(',', '').replace('-', '_to_')
+        hyper_files = []
+        
+        print(f"\nDEBUG: HYPER_AVAILABLE = {HYPER_AVAILABLE}")
+        print(f"DEBUG: Output directory: {os.path.dirname(__file__)}")
+        
+        if HYPER_AVAILABLE:
+            results.append({'success': True, 'message': '\n💎 Creating Tableau Hyper extracts...'})
+            
+            # Create User Subscriptions Hyper extract
+            user_hyper_filename = f"tcm_user_subscriptions_{date_file_label}_{site_luid}_{timestamp}.hyper"
+            user_hyper_path = os.path.join(os.path.dirname(__file__), user_hyper_filename)
+            
+            print(f"DEBUG: Creating user hyper at: {user_hyper_path}")
+            print(f"DEBUG: User report data count: {len(user_report_data)}")
+            
+            user_columns = [
+                ('Username', SqlType.text(), 'username'),
+                ('Metrics Following', SqlType.int(), 'metrics_following')
+            ]
+            
+            user_hyper_result = create_hyper_extract_from_data(
+                user_report_data,
+                user_columns,
+                user_hyper_path,
+                'User_Subscriptions'
+            )
+            
+            print(f"DEBUG: User hyper result: {user_hyper_result}")
+            
+            if user_hyper_result['success']:
+                hyper_files.append(user_hyper_filename)
+                results.append({'success': True, 'message': f'  ✅ User subscriptions extract: {user_hyper_filename}'})
+                results.append({'success': True, 'message': f'     ({user_hyper_result["row_count"]} rows)'})
+                results.append({'success': True, 'message': f'     📁 {user_hyper_path}'})
+            else:
+                results.append({'success': False, 'message': f'  ⚠️  User extract failed: {user_hyper_result["error"]}'})
+                if 'traceback' in user_hyper_result:
+                    print(f"ERROR creating user hyper: {user_hyper_result['traceback']}")
+            
+            # Create Metric Followers Hyper extract
+            metric_hyper_filename = f"tcm_metric_followers_{date_file_label}_{site_luid}_{timestamp}.hyper"
+            metric_hyper_path = os.path.join(os.path.dirname(__file__), metric_hyper_filename)
+            
+            print(f"DEBUG: Creating metric hyper at: {metric_hyper_path}")
+            print(f"DEBUG: Metric report data count: {len(metric_report_data)}")
+            
+            metric_columns = [
+                ('Metric Name', SqlType.text(), 'metric_name'),
+                ('Follower Count', SqlType.int(), 'follower_count')
+            ]
+            
+            metric_hyper_result = create_hyper_extract_from_data(
+                metric_report_data,
+                metric_columns,
+                metric_hyper_path,
+                'Metric_Followers'
+            )
+            
+            print(f"DEBUG: Metric hyper result: {metric_hyper_result}")
+            
+            if metric_hyper_result['success']:
+                hyper_files.append(metric_hyper_filename)
+                results.append({'success': True, 'message': f'  ✅ Metric followers extract: {metric_hyper_filename}'})
+                results.append({'success': True, 'message': f'     ({metric_hyper_result["row_count"]} rows)'})
+                results.append({'success': True, 'message': f'     📁 {metric_hyper_path}'})
+            else:
+                results.append({'success': False, 'message': f'  ⚠️  Metric extract failed: {metric_hyper_result["error"]}'})
+                if 'traceback' in metric_hyper_result:
+                    print(f"ERROR creating metric hyper: {metric_hyper_result['traceback']}")
+        else:
+            results.append({'success': False, 'message': '\n⚠️  Hyper extracts skipped: tableauhyperapi not installed'})
+            results.append({'success': True, 'message': '   Run: pip install tableauhyperapi'})
+        
+        # Step 10: Publish datasources if requested
+        publish_datasources = data.get('publish_datasources') == 'on' or data.get('publish_datasources') == True
+        published_datasources = []
+        
+        if publish_datasources and hyper_files:
+            results.append({'success': True, 'message': '\n📤 Publishing datasources to Tableau Cloud...'})
+            
+            project_name = data.get('project_name', 'Default').strip()
+            datasource_prefix = data.get('datasource_prefix', 'TCM Activity').strip()
+            
+            # We already have auth from earlier steps
+            # auth_token, site_id_returned are from Tableau auth
+            
+            # Publish User Subscriptions datasource
+            if user_hyper_result.get('success'):
+                user_ds_name = f"{datasource_prefix} - User Subscriptions"
+                results.append({'success': True, 'message': f'  📊 Publishing: {user_ds_name}'})
+                
+                publish_result = publish_hyper_file(
+                    tableau_server,
+                    site_id_returned,
+                    auth_token,
+                    project_name,
+                    user_ds_name,
+                    user_hyper_path,
+                    api_version
+                )
+                
+                if publish_result['success']:
+                    published_datasources.append({
+                        'name': user_ds_name,
+                        'id': publish_result['datasource_id'],
+                        'url': publish_result.get('web_url')
+                    })
+                    results.append({'success': True, 'message': f'     ✅ Published successfully'})
+                    if publish_result.get('web_url'):
+                        results.append({'success': True, 'message': f'     🔗 {publish_result["web_url"]}'})
+                else:
+                    results.append({'success': False, 'message': f'     ❌ Failed: {publish_result["error"]}'})
+            
+            # Publish Metric Followers datasource
+            if metric_hyper_result.get('success'):
+                metric_ds_name = f"{datasource_prefix} - Metric Followers"
+                results.append({'success': True, 'message': f'  📊 Publishing: {metric_ds_name}'})
+                
+                publish_result = publish_hyper_file(
+                    tableau_server,
+                    site_id_returned,
+                    auth_token,
+                    project_name,
+                    metric_ds_name,
+                    metric_hyper_path,
+                    api_version
+                )
+                
+                if publish_result['success']:
+                    published_datasources.append({
+                        'name': metric_ds_name,
+                        'id': publish_result['datasource_id'],
+                        'url': publish_result.get('web_url')
+                    })
+                    results.append({'success': True, 'message': f'     ✅ Published successfully'})
+                    if publish_result.get('web_url'):
+                        results.append({'success': True, 'message': f'     🔗 {publish_result["web_url"]}'})
+                else:
+                    results.append({'success': False, 'message': f'     ❌ Failed: {publish_result["error"]}'})
+        
+        # Step 11: Save combined logs to text file (optional, for debugging)
+        output_filename = f"tcm_metric_subscription_logs_{date_file_label}_{site_luid}_{timestamp}.txt"
+        output_path = os.path.join(os.path.dirname(__file__), output_filename)
+        
+        try:
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(f"TABLEAU CLOUD MANAGER - METRIC SUBSCRIPTION CHANGE LOGS\n")
+                f.write(f"Site LUID: {site_luid}\n")
+                f.write(f"Date Range: {date_label}\n")
+                f.write(f"Event type: {event_type}\n")
+                f.write(f"Total Files Downloaded: {downloaded_count}\n")
+                f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("="*80 + "\n\n")
+                f.write(combined_logs)
+            
+            results.append({'success': True, 'message': f'💾 Saved to file: {output_filename}'})
+            results.append({'success': True, 'message': f'📁 Full path: {output_path}'})
+            print(f"\n✅ Metric subscription logs saved to: {output_path}\n")
+        except Exception as e:
+            results.append({'success': False, 'message': f'⚠️  Failed to save file: {str(e)}'})
+            print(f"ERROR saving file: {str(e)}")
+        
+        # Summary
+        results.append({'success': True, 'message': '\n📊 SUMMARY'})
+        results.append({'success': True, 'message': '=' * 60})
+        results.append({'success': True, 'message': f'✅ Successfully downloaded: {downloaded_count} file(s)'})
+        if failed_count > 0:
+            results.append({'success': True, 'message': f'❌ Failed: {failed_count} file(s)'})
+        results.append({'success': True, 'message': f'📊 Total log size: {len(combined_logs):,} characters'})
+        results.append({'success': True, 'message': f'📅 Date range: {date_label}'})
+        results.append({'success': True, 'message': f'🔍 Event type: {event_type}'})
+        results.append({'success': True, 'message': f'📊 Output Files:'})
+        results.append({'success': True, 'message': f'   • Raw logs: {output_filename}'})
+        if hyper_files:
+            results.append({'success': True, 'message': f'   • Hyper extracts: {len(hyper_files)} file(s) created'})
+            for hyper_file in hyper_files:
+                results.append({'success': True, 'message': f'     - {hyper_file}'})
+        if published_datasources:
+            results.append({'success': True, 'message': f'   • Published datasources: {len(published_datasources)}'})
+            for ds in published_datasources:
+                results.append({'success': True, 'message': f'     - {ds["name"]}'})
+        results.append({'success': True, 'message': f'   • {len(user_report_data)} users analyzed'})
+        results.append({'success': True, 'message': f'   • {len(metric_report_data)} metrics analyzed'})
+        
+        summary = f"Downloaded {downloaded_count} logs, analyzed {len(subscription_events)} events"
+        if failed_count > 0:
+            summary += f", {failed_count} failed"
+        
+        return jsonify({
+            'success': True,
+            'results': results,
+            'summary': summary,
+            'log_count': downloaded_count,
+            'failed_count': failed_count,
+            'output_file': output_filename,
+            'hyper_files': hyper_files,
+            'published_datasources': published_datasources,
+            'events_analyzed': len(subscription_events),
+            'unique_users': len(user_luids),
+            'unique_metrics': len(metric_ids),
+            'user_table': user_report_data,
+            'metric_table': metric_report_data
+        })
+        
+    except Exception as e:
+        # Get full stack trace
+        tb_str = traceback.format_exc()
+        print(f"ERROR in tcm_activity_logs: {tb_str}")
         
         return jsonify({
             'success': False,
