@@ -3102,6 +3102,9 @@ def export_definitions():
         datasource_map = {}
         if datasources_result['success']:
             datasource_map = datasources_result.get('datasources', {})
+            results.append({'success': True, 'message': f'  ✅ Found {len(datasource_map)} datasources for name lookup'})
+        else:
+            results.append({'success': False, 'message': f'  ⚠️ Could not fetch datasources: {datasources_result.get("error", "Unknown error")}'})
         
         # Process definitions and build CSV data
         results.append({'success': True, 'message': '📝 Processing definitions...'})
@@ -3132,7 +3135,17 @@ def export_definitions():
             # Get datasource info
             datasource_info = spec.get('datasource', {})
             datasource_id = datasource_info.get('id', '') if isinstance(datasource_info, dict) else str(datasource_info)
-            datasource_name = datasource_map.get(datasource_id, datasource_id)
+            datasource_name = datasource_map.get(datasource_id, '')
+            
+            # Debug: log first few unmatched datasources
+            if not datasource_name and datasource_id and basic_count + viz_state_count <= 3:
+                print(f"DEBUG: Datasource ID '{datasource_id}' not found in map. Map has {len(datasource_map)} entries.")
+                if datasource_map:
+                    print(f"DEBUG: Sample map keys: {list(datasource_map.keys())[:3]}")
+            
+            # If no name found, use the ID as fallback
+            if not datasource_name:
+                datasource_name = datasource_id if datasource_id else 'Unknown'
             
             # Build row based on mode and type - Datasource Name first, then Name, then core fields
             row = {
