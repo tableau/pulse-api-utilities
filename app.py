@@ -1333,8 +1333,9 @@ def tcm_get_activity_log_paths(tcm_uri, session_token, tenant_id, site_id, start
             encoded_end = quote(end_time, safe='')
             url = f"{tcm_uri}/api/v1/tenants/{tenant_id}/sites/{site_id}/activitylog?startTime={encoded_start}&endTime={encoded_end}"
             
-            # Note: eventType filter will be applied client-side after getting results
-            # The API may not support server-side filtering
+            # Add eventType to API call if specified (server-side filtering)
+            if event_type:
+                url += f"&eventType={quote(event_type, safe='')}"
             
             if page_token:
                 # Don't encode pageToken - it's base64 and should be passed as-is
@@ -3170,7 +3171,7 @@ def tcm_activity_logs():
                     print(f"  - {fp}")
         
         if not all_file_paths:
-            results.append({'success': True, 'message': f'⚠️  No logs found with eventType={event_type} for Oct 1-14, 2025'})
+            results.append({'success': True, 'message': f'⚠️  No logs found with eventType={event_type} for {date_label}'})
             results.append({'success': True, 'message': 'ℹ️  This might mean:'})
             results.append({'success': True, 'message': '  • No metric subscription changes occurred in this period'})
             results.append({'success': True, 'message': '  • The site LUID is incorrect'})
@@ -3179,7 +3180,7 @@ def tcm_activity_logs():
             return jsonify({
                 'success': True,
                 'results': results,
-                'summary': f'No {event_type} logs found for Oct 1-14, 2025',
+                'summary': f'No {event_type} logs found for {date_label}',
                 'file_count': 0
             })
         
@@ -3290,37 +3291,40 @@ def tcm_activity_logs():
         user_luids = set()
         metric_ids = set()
         
-        # Track subscriptions per user and followers per metric
-        user_metrics = {}  # user_luid -> set of metric_ids they're following
-        metric_followers = {}  # metric_id -> set of user_luids following it
+        # Store enriched events for CSV output
+        enriched_events = []
         
         for event in subscription_events:
             # Extract fields from TCM activity log format
             actor_luid = event.get('actorUserLuid')
             metric_id = event.get('scopedMetricId')
             operation = event.get('subscriptionOperation', '')
+            # Get event time - try common field names
+            event_time = (event.get('eventTime') or event.get('timestamp') or 
+                         event.get('createdAt') or event.get('time') or '')
+            # Get subscriber user ID (may be different from actor in admin scenarios)
+            subscriber_luid = event.get('subscriberUserLuid') or event.get('targetUserLuid') or actor_luid
             
             if not actor_luid or not metric_id:
                 continue
             
             user_luids.add(actor_luid)
+            if subscriber_luid:
+                user_luids.add(subscriber_luid)
             metric_ids.add(metric_id)
             
-            # Initialize if needed
-            if actor_luid not in user_metrics:
-                user_metrics[actor_luid] = set()
-            if metric_id not in metric_followers:
-                metric_followers[metric_id] = set()
-            
-            # Track subscription state based on operation
-            # FOLLOW_OPERATION_FOLLOW = subscribe
-            # FOLLOW_OPERATION_UNFOLLOW = unsubscribe
-            if 'FOLLOW' in operation and 'UNFOLLOW' not in operation:
-                user_metrics[actor_luid].add(metric_id)
-                metric_followers[metric_id].add(actor_luid)
-            elif 'UNFOLLOW' in operation:
-                user_metrics[actor_luid].discard(metric_id)
-                metric_followers[metric_id].discard(actor_luid)
+            # Store event for CSV output
+            enriched_events.append({
+                'event_time': event_time,
+                'event_type': event_type,  # metric_subscription_change
+                'subscription_operation': operation,
+                'subscriber_user_id': subscriber_luid,
+                'subscriber_user_name': '',  # Will be filled after name lookup
+                'metric_id': metric_id,
+                'metric_name': '',  # Will be filled after name lookup
+                'initiating_user_id': actor_luid,
+                'initiating_user_name': ''  # Will be filled after name lookup
+            })
         
         results.append({'success': True, 'message': f'  Unique users: {len(user_luids)}'})
         results.append({'success': True, 'message': f'  Unique metrics: {len(metric_ids)}'})
@@ -3519,121 +3523,130 @@ def tcm_activity_logs():
                 results.append({'success': False, 'message': f'  ⚠️  Error fetching metrics: {str(e)}'})
                 metric_name_map = {}
         
-        # Step 8: Create enriched reports for display
-        results.append({'success': True, 'message': '\n📊 Generating analysis reports...'})
+        # Step 8: Enrich events with user names and metric names
+        results.append({'success': True, 'message': '\n📊 Enriching subscription events...'})
         
-        print(f"\nDEBUG: Creating reports...")
+        print(f"\nDEBUG: Enriching events...")
         print(f"DEBUG: User name map has {len(user_name_map)} entries")
         print(f"DEBUG: Metric name map has {len(metric_name_map)} entries")
-        print(f"DEBUG: Processing {len(user_metrics)} users and {len(metric_followers)} metrics")
+        print(f"DEBUG: Total events to enrich: {len(enriched_events)}")
         
-        # Build user report data (username and count only)
-        user_report_data = []
-        for user_luid, metrics in sorted(user_metrics.items(), key=lambda x: -len(x[1])):
-            username = user_name_map.get(user_luid, f"Unknown User ({user_luid[:8]}...)")
-            if username == user_luid and len(user_report_data) < 3:
-                print(f"DEBUG: No username found for LUID: {user_luid}")
-            user_report_data.append({
-                'username': username,
-                'metrics_following': len(metrics)
-            })
+        # Enrich each event with user names and metric names
+        for event in enriched_events:
+            subscriber_id = event['subscriber_user_id']
+            initiator_id = event['initiating_user_id']
+            metric_id = event['metric_id']
+            
+            event['subscriber_user_name'] = user_name_map.get(subscriber_id, '')
+            event['initiating_user_name'] = user_name_map.get(initiator_id, '')
+            event['metric_name'] = metric_name_map.get(metric_id, '')
         
-        # Build metric report data (metric name and follower count only)
-        metric_report_data = []
-        for metric_id, followers in sorted(metric_followers.items(), key=lambda x: -len(x[1])):
-            metric_name = metric_name_map.get(metric_id, f"Unknown Metric ({metric_id[:8]}...)")
-            if metric_name == metric_id and len(metric_report_data) < 3:
-                print(f"DEBUG: No metric name found for ID: {metric_id}")
-            metric_report_data.append({
-                'metric_name': metric_name,
-                'follower_count': len(followers)
-            })
+        results.append({'success': True, 'message': f'  ✅ Enriched {len(enriched_events)} events'})
         
-        results.append({'success': True, 'message': f'  ✅ Generated user report ({len(user_report_data)} users)'})
-        results.append({'success': True, 'message': f'  ✅ Generated metric report ({len(metric_report_data)} metrics)'})
-        
-        # Step 9: Create Hyper extracts
+        # Step 9: Create CSV file
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         date_file_label = date_label.replace(' ', '_').replace(',', '').replace('-', '_to_')
-        hyper_files = []
         
-        print(f"\nDEBUG: HYPER_AVAILABLE = {HYPER_AVAILABLE}")
-        print(f"DEBUG: Output directory: {os.path.dirname(__file__)}")
+        results.append({'success': True, 'message': '\n📄 Creating CSV export...'})
+        
+        csv_filename = f"tcm_subscription_events_{date_file_label}_{site_luid}_{timestamp}.csv"
+        csv_path = os.path.join(os.path.dirname(__file__), csv_filename)
+        
+        print(f"DEBUG: Creating CSV at: {csv_path}")
+        print(f"DEBUG: Events to write: {len(enriched_events)}")
+        
+        try:
+            with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+                fieldnames = [
+                    'Event Time',
+                    'Event Type',
+                    'Subscription Operation',
+                    'Subscriber User ID',
+                    'Subscriber User Name or email',
+                    'Metric ID',
+                    'Metric Name',
+                    'Initiating User ID',
+                    'Initiating User Name'
+                ]
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter='\t')
+                writer.writeheader()
+                
+                # Sort events by event time (most recent first)
+                sorted_events = sorted(enriched_events, key=lambda x: x.get('event_time', ''), reverse=True)
+                
+                for event in sorted_events:
+                    writer.writerow({
+                        'Event Time': event['event_time'],
+                        'Event Type': event['event_type'],
+                        'Subscription Operation': event['subscription_operation'],
+                        'Subscriber User ID': event['subscriber_user_id'],
+                        'Subscriber User Name or email': event['subscriber_user_name'],
+                        'Metric ID': event['metric_id'],
+                        'Metric Name': event['metric_name'],
+                        'Initiating User ID': event['initiating_user_id'],
+                        'Initiating User Name': event['initiating_user_name']
+                    })
+            
+            results.append({'success': True, 'message': f'  ✅ CSV created: {csv_filename}'})
+            results.append({'success': True, 'message': f'     ({len(enriched_events)} rows)'})
+            results.append({'success': True, 'message': f'     📁 {csv_path}'})
+            csv_files = [csv_filename]
+        except Exception as e:
+            results.append({'success': False, 'message': f'  ⚠️  CSV creation failed: {str(e)}'})
+            print(f"ERROR creating CSV: {traceback.format_exc()}")
+            csv_files = []
+        
+        # Step 9b: Create Hyper extract for publishing (if tableauhyperapi is available)
+        hyper_files = []
+        hyper_path = None
+        hyper_result = None
         
         if HYPER_AVAILABLE:
-            results.append({'success': True, 'message': '\n💎 Creating Tableau Hyper extracts...'})
+            results.append({'success': True, 'message': '\n💎 Creating Tableau Hyper extract...'})
             
-            # Create User Subscriptions Hyper extract
-            user_hyper_filename = f"tcm_user_subscriptions_{date_file_label}_{site_luid}_{timestamp}.hyper"
-            user_hyper_path = os.path.join(os.path.dirname(__file__), user_hyper_filename)
+            hyper_filename = f"tcm_subscription_events_{date_file_label}_{site_luid}_{timestamp}.hyper"
+            hyper_path = os.path.join(os.path.dirname(__file__), hyper_filename)
             
-            print(f"DEBUG: Creating user hyper at: {user_hyper_path}")
-            print(f"DEBUG: User report data count: {len(user_report_data)}")
+            print(f"DEBUG: Creating hyper at: {hyper_path}")
+            print(f"DEBUG: Events data count: {len(enriched_events)}")
             
-            user_columns = [
-                ('Username', SqlType.text(), 'username'),
-                ('Metrics Following', SqlType.int(), 'metrics_following')
-            ]
-            
-            user_hyper_result = create_hyper_extract_from_data(
-                user_report_data,
-                user_columns,
-                user_hyper_path,
-                'User_Subscriptions'
-            )
-            
-            print(f"DEBUG: User hyper result: {user_hyper_result}")
-            
-            if user_hyper_result['success']:
-                hyper_files.append(user_hyper_filename)
-                results.append({'success': True, 'message': f'  ✅ User subscriptions extract: {user_hyper_filename}'})
-                results.append({'success': True, 'message': f'     ({user_hyper_result["row_count"]} rows)'})
-                results.append({'success': True, 'message': f'     📁 {user_hyper_path}'})
-            else:
-                results.append({'success': False, 'message': f'  ⚠️  User extract failed: {user_hyper_result["error"]}'})
-                if 'traceback' in user_hyper_result:
-                    print(f"ERROR creating user hyper: {user_hyper_result['traceback']}")
-            
-            # Create Metric Followers Hyper extract
-            metric_hyper_filename = f"tcm_metric_followers_{date_file_label}_{site_luid}_{timestamp}.hyper"
-            metric_hyper_path = os.path.join(os.path.dirname(__file__), metric_hyper_filename)
-            
-            print(f"DEBUG: Creating metric hyper at: {metric_hyper_path}")
-            print(f"DEBUG: Metric report data count: {len(metric_report_data)}")
-            
-            metric_columns = [
+            hyper_columns = [
+                ('Event Time', SqlType.text(), 'event_time'),
+                ('Event Type', SqlType.text(), 'event_type'),
+                ('Subscription Operation', SqlType.text(), 'subscription_operation'),
+                ('Subscriber User ID', SqlType.text(), 'subscriber_user_id'),
+                ('Subscriber User Name', SqlType.text(), 'subscriber_user_name'),
+                ('Metric ID', SqlType.text(), 'metric_id'),
                 ('Metric Name', SqlType.text(), 'metric_name'),
-                ('Follower Count', SqlType.int(), 'follower_count')
+                ('Initiating User ID', SqlType.text(), 'initiating_user_id'),
+                ('Initiating User Name', SqlType.text(), 'initiating_user_name')
             ]
             
-            metric_hyper_result = create_hyper_extract_from_data(
-                metric_report_data,
-                metric_columns,
-                metric_hyper_path,
-                'Metric_Followers'
+            hyper_result = create_hyper_extract_from_data(
+                enriched_events,
+                hyper_columns,
+                hyper_path,
+                'Subscription_Events'
             )
             
-            print(f"DEBUG: Metric hyper result: {metric_hyper_result}")
+            print(f"DEBUG: Hyper result: {hyper_result}")
             
-            if metric_hyper_result['success']:
-                hyper_files.append(metric_hyper_filename)
-                results.append({'success': True, 'message': f'  ✅ Metric followers extract: {metric_hyper_filename}'})
-                results.append({'success': True, 'message': f'     ({metric_hyper_result["row_count"]} rows)'})
-                results.append({'success': True, 'message': f'     📁 {metric_hyper_path}'})
+            if hyper_result['success']:
+                hyper_files.append(hyper_filename)
+                results.append({'success': True, 'message': f'  ✅ Hyper extract: {hyper_filename}'})
+                results.append({'success': True, 'message': f'     ({hyper_result["row_count"]} rows)'})
+                results.append({'success': True, 'message': f'     📁 {hyper_path}'})
             else:
-                results.append({'success': False, 'message': f'  ⚠️  Metric extract failed: {metric_hyper_result["error"]}'})
-                if 'traceback' in metric_hyper_result:
-                    print(f"ERROR creating metric hyper: {metric_hyper_result['traceback']}")
-        else:
-            results.append({'success': False, 'message': '\n⚠️  Hyper extracts skipped: tableauhyperapi not installed'})
-            results.append({'success': True, 'message': '   Run: pip install tableauhyperapi'})
+                results.append({'success': False, 'message': f'  ⚠️  Hyper extract failed: {hyper_result["error"]}'})
+                if 'traceback' in hyper_result:
+                    print(f"ERROR creating hyper: {hyper_result['traceback']}")
         
         # Step 10: Publish datasources if requested
         publish_datasources = data.get('publish_datasources') == 'on' or data.get('publish_datasources') == True
         published_datasources = []
         
-        if publish_datasources and hyper_files:
-            results.append({'success': True, 'message': '\n📤 Publishing datasources to Tableau Cloud...'})
+        if publish_datasources and hyper_files and hyper_result and hyper_result.get('success'):
+            results.append({'success': True, 'message': '\n📤 Publishing datasource to Tableau Cloud...'})
             
             project_name = data.get('project_name', 'Default').strip()
             datasource_prefix = data.get('datasource_prefix', 'TCM Activity').strip()
@@ -3641,59 +3654,34 @@ def tcm_activity_logs():
             # We already have auth from earlier steps
             # auth_token, site_id_returned are from Tableau auth
             
-            # Publish User Subscriptions datasource
-            if user_hyper_result.get('success'):
-                user_ds_name = f"{datasource_prefix} - User Subscriptions"
-                results.append({'success': True, 'message': f'  📊 Publishing: {user_ds_name}'})
-                
-                publish_result = publish_hyper_file(
-                    tableau_server,
-                    site_id_returned,
-                    auth_token,
-                    project_name,
-                    user_ds_name,
-                    user_hyper_path,
-                    api_version
-                )
-                
-                if publish_result['success']:
-                    published_datasources.append({
-                        'name': user_ds_name,
-                        'id': publish_result['datasource_id'],
-                        'url': publish_result.get('web_url')
-                    })
-                    results.append({'success': True, 'message': f'     ✅ Published successfully'})
-                    if publish_result.get('web_url'):
-                        results.append({'success': True, 'message': f'     🔗 {publish_result["web_url"]}'})
-                else:
-                    results.append({'success': False, 'message': f'     ❌ Failed: {publish_result["error"]}'})
+            # Publish Subscription Events datasource
+            ds_name = f"{datasource_prefix} - Subscription Events"
+            results.append({'success': True, 'message': f'  📊 Publishing: {ds_name}'})
             
-            # Publish Metric Followers datasource
-            if metric_hyper_result.get('success'):
-                metric_ds_name = f"{datasource_prefix} - Metric Followers"
-                results.append({'success': True, 'message': f'  📊 Publishing: {metric_ds_name}'})
-                
-                publish_result = publish_hyper_file(
-                    tableau_server,
-                    site_id_returned,
-                    auth_token,
-                    project_name,
-                    metric_ds_name,
-                    metric_hyper_path,
-                    api_version
-                )
-                
-                if publish_result['success']:
-                    published_datasources.append({
-                        'name': metric_ds_name,
-                        'id': publish_result['datasource_id'],
-                        'url': publish_result.get('web_url')
-                    })
-                    results.append({'success': True, 'message': f'     ✅ Published successfully'})
-                    if publish_result.get('web_url'):
-                        results.append({'success': True, 'message': f'     🔗 {publish_result["web_url"]}'})
-                else:
-                    results.append({'success': False, 'message': f'     ❌ Failed: {publish_result["error"]}'})
+            publish_result = publish_hyper_file(
+                tableau_server,
+                site_id_returned,
+                auth_token,
+                project_name,
+                ds_name,
+                hyper_path,
+                api_version
+            )
+            
+            if publish_result['success']:
+                published_datasources.append({
+                    'name': ds_name,
+                    'id': publish_result['datasource_id'],
+                    'url': publish_result.get('web_url')
+                })
+                results.append({'success': True, 'message': f'     ✅ Published successfully'})
+                if publish_result.get('web_url'):
+                    results.append({'success': True, 'message': f'     🔗 {publish_result["web_url"]}'})
+            else:
+                results.append({'success': False, 'message': f'     ❌ Failed: {publish_result["error"]}'})
+        elif publish_datasources and not HYPER_AVAILABLE:
+            results.append({'success': False, 'message': '\n⚠️  Cannot publish: tableauhyperapi not installed'})
+            results.append({'success': True, 'message': '   Run: pip install tableauhyperapi'})
         
         # Step 11: Save combined logs to text file (optional, for debugging)
         output_filename = f"tcm_metric_subscription_logs_{date_file_label}_{site_luid}_{timestamp}.txt"
@@ -3728,16 +3716,17 @@ def tcm_activity_logs():
         results.append({'success': True, 'message': f'🔍 Event type: {event_type}'})
         results.append({'success': True, 'message': f'📊 Output Files:'})
         results.append({'success': True, 'message': f'   • Raw logs: {output_filename}'})
+        if csv_files:
+            results.append({'success': True, 'message': f'   • CSV export: {csv_files[0]}'})
         if hyper_files:
-            results.append({'success': True, 'message': f'   • Hyper extracts: {len(hyper_files)} file(s) created'})
-            for hyper_file in hyper_files:
-                results.append({'success': True, 'message': f'     - {hyper_file}'})
+            results.append({'success': True, 'message': f'   • Hyper extract: {hyper_files[0]}'})
         if published_datasources:
             results.append({'success': True, 'message': f'   • Published datasources: {len(published_datasources)}'})
             for ds in published_datasources:
                 results.append({'success': True, 'message': f'     - {ds["name"]}'})
-        results.append({'success': True, 'message': f'   • {len(user_report_data)} users analyzed'})
-        results.append({'success': True, 'message': f'   • {len(metric_report_data)} metrics analyzed'})
+        results.append({'success': True, 'message': f'   • {len(user_luids)} unique users'})
+        results.append({'success': True, 'message': f'   • {len(metric_ids)} unique metrics'})
+        results.append({'success': True, 'message': f'   • {len(enriched_events)} subscription events'})
         
         summary = f"Downloaded {downloaded_count} logs, analyzed {len(subscription_events)} events"
         if failed_count > 0:
@@ -3750,13 +3739,13 @@ def tcm_activity_logs():
             'log_count': downloaded_count,
             'failed_count': failed_count,
             'output_file': output_filename,
-            'hyper_files': hyper_files,
+            'csv_file': csv_files[0] if csv_files else None,
+            'hyper_file': hyper_files[0] if hyper_files else None,
             'published_datasources': published_datasources,
             'events_analyzed': len(subscription_events),
             'unique_users': len(user_luids),
             'unique_metrics': len(metric_ids),
-            'user_table': user_report_data,
-            'metric_table': metric_report_data
+            'events_data': enriched_events
         })
         
     except Exception as e:
