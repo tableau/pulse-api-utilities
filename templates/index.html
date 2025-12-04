@@ -609,6 +609,18 @@
                         </div>
                         <button class="utility-button">Get Started</button>
                     </div>
+
+                    <div class="utility-card" onclick="showTab('export-definitions')">
+                        <div class="utility-icon">📑</div>
+                        <h3>Export Definitions</h3>
+                        <p>Export all Pulse metric definitions to CSV for documentation or analysis</p>
+                        <div class="utility-features">
+                            <span>📊 Basic or verbose export</span>
+                            <span>📋 One row per definition</span>
+                            <span>📥 Download as CSV</span>
+                        </div>
+                        <button class="utility-button">Get Started</button>
+                    </div>
                 </div>
 
                 <div class="test-section">
@@ -1326,6 +1338,80 @@
 
                 <div class="form-actions">
                     <button type="submit" class="button">📋 Fetch Activity Logs</button>
+                    <button type="button" class="button secondary" onclick="showTab('home')">← Back to Home</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Export Definitions Tab -->
+        <div id="export-definitions" class="tab-content">
+            <div class="form-header">
+                <h2>📑 Export Pulse Definitions</h2>
+                <p>Export all metric definitions from your site to CSV for documentation or analysis</p>
+                <button type="button" class="button secondary back-button" onclick="showTab('home')">← Back to Home</button>
+            </div>
+            
+            <form id="exportDefinitionsForm" onsubmit="submitExportDefinitions(event)">
+                <!-- Server Connection Section -->
+                <div class="form-section">
+                    <h3>🔌 Tableau Server Connection</h3>
+                    <div class="form-row">
+                        <input type="text" id="export_server_url" name="server_url" placeholder="Server URL (e.g., https://10ax.online.tableau.com)" required>
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="export_api_version" name="api_version" placeholder="API Version (default: 3.26)" value="3.26">
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="export_site_content_url" name="site_content_url" placeholder="Site Content URL (leave blank for default site)">
+                    </div>
+                </div>
+
+                <!-- Authentication Section -->
+                <div class="form-section">
+                    <h3>🔐 Authentication</h3>
+                    <div class="form-row">
+                        <select id="export_auth_method" name="auth_method" onchange="toggleExportAuthFields()" required>
+                            <option value="">Select Authentication Method</option>
+                            <option value="username">Username/Password</option>
+                            <option value="pat">Personal Access Token</option>
+                        </select>
+                    </div>
+                    <div id="export_user_auth" class="auth-fields" style="display: none;">
+                        <div class="form-row">
+                            <input type="text" id="export_username" name="username" placeholder="Username">
+                        </div>
+                        <div class="form-row">
+                            <input type="password" id="export_password" name="password" placeholder="Password">
+                        </div>
+                    </div>
+                    <div id="export_pat_auth" class="auth-fields" style="display: none;">
+                        <div class="form-row">
+                            <input type="text" id="export_pat_name" name="pat_name" placeholder="PAT Name">
+                        </div>
+                        <div class="form-row">
+                            <input type="password" id="export_pat_token" name="pat_token" placeholder="PAT Token">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Export Options Section -->
+                <div class="form-section">
+                    <h3>📋 Export Options</h3>
+                    <div class="form-row">
+                        <select id="export_mode" name="export_mode" required>
+                            <option value="basic">Basic - Name, Measure, Time Dimension, Filters</option>
+                            <option value="verbose">Verbose - All Configuration Details</option>
+                        </select>
+                        <small>💡 Basic mode shows essential fields; Verbose includes extension options, comparisons, certification, etc.</small>
+                    </div>
+                    <div class="info-box" style="margin-top: 15px; padding: 12px; background-color: #f0f8ff; border-left: 4px solid #0066cc; border-radius: 4px;">
+                        <strong>ℹ️ Note about Viz State definitions:</strong><br>
+                        Viz State definitions (created from existing visualizations) will show the name and type, but Measure, Time Dimension, and Filters will be marked as "(Viz State)" since they're embedded in the visualization.
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="button">📑 Export Definitions</button>
                     <button type="button" class="button secondary" onclick="showTab('home')">← Back to Home</button>
                 </div>
             </form>
@@ -2151,10 +2237,158 @@
             }
         }
 
+        // Toggle auth fields for export definitions
+        function toggleExportAuthFields() {
+            const authMethod = document.getElementById('export_auth_method').value;
+            const userAuth = document.getElementById('export_user_auth');
+            const patAuth = document.getElementById('export_pat_auth');
+            
+            userAuth.style.display = authMethod === 'username' ? 'block' : 'none';
+            patAuth.style.display = authMethod === 'pat' ? 'block' : 'none';
+        }
+
+        // Submit export definitions form
+        async function submitExportDefinitions(event) {
+            event.preventDefault();
+            
+            const formData = new FormData(event.target);
+            const data = Object.fromEntries(formData.entries());
+            
+            // Clear previous results and show progress
+            clearPreviousResults();
+            showProgress('📑 Exporting definitions...', '📑 Export Definitions Results');
+            
+            try {
+                const response = await fetch('/export-definitions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+                
+                console.log('Export Result:', result);
+                
+                if (result.success) {
+                    showExportDefinitionsResults(result, '✅ Definitions exported successfully!');
+                } else {
+                    showError(result.error || 'Unknown error occurred', '❌ Definition export failed', result);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showError('Failed to communicate with server: ' + error.message, '❌ Definition export failed');
+            }
+        }
+
+        // Show export definitions results
+        function showExportDefinitionsResults(result, completionMessage = '✅ Export completed!') {
+            const progressDiv = document.getElementById('progress');
+            const resultsDiv = document.getElementById('copyResults');
+            
+            progressDiv.innerHTML = completionMessage;
+            
+            let resultsHTML = '';
+            
+            // Show progress messages
+            if (result.results && result.results.length > 0) {
+                result.results.forEach(r => {
+                    const className = r.success ? 'success' : 'error';
+                    resultsHTML += `<div class="result-item ${className}">${r.message}</div>`;
+                });
+            }
+            
+            // Show summary
+            if (result.summary) {
+                resultsHTML += `
+                    <div class="result-item">
+                        <strong>📊 Summary:</strong><br>
+                        ${result.summary}
+                    </div>
+                `;
+            }
+            
+            // Show definitions table and download button
+            if (result.csv_data && result.csv_data.length > 0) {
+                // Store data globally for CSV download
+                window.exportDefinitionsData = result.csv_data;
+                window.exportDefinitionsContent = result.csv_content;
+                window.exportMode = result.export_mode;
+                
+                let tableHTML = '<div class="result-item" style="margin-top: 20px; padding: 15px; background-color: white; border-radius: 8px;">';
+                tableHTML += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">';
+                tableHTML += '<h3 style="margin: 0; color: #333;">📊 Definitions (' + result.csv_data.length + ' total)</h3>';
+                tableHTML += '<button onclick="downloadDefinitionsCSV()" class="button" style="padding: 8px 16px; font-size: 14px;">📥 Download CSV</button>';
+                tableHTML += '</div>';
+                tableHTML += '<div style="overflow-x: auto; max-height: 400px; overflow-y: auto;">';
+                tableHTML += '<table style="width: 100%; border-collapse: collapse; font-size: 12px; background-color: white;">';
+                tableHTML += '<thead style="position: sticky; top: 0; z-index: 1;">';
+                tableHTML += '<tr style="background-color: #f5f5f5; border-bottom: 2px solid #ddd;">';
+                
+                // Get headers from first row
+                const headers = Object.keys(result.csv_data[0]);
+                headers.forEach(header => {
+                    tableHTML += '<th style="padding: 10px; text-align: left; border: 1px solid #ddd; font-weight: 600; white-space: nowrap;">' + header + '</th>';
+                });
+                tableHTML += '</tr></thead><tbody>';
+                
+                // Show first 50 rows for preview
+                const previewRows = result.csv_data.slice(0, 50);
+                previewRows.forEach((row, index) => {
+                    const bgColor = index % 2 === 0 ? '#fff' : '#f9f9f9';
+                    tableHTML += '<tr style="background-color: ' + bgColor + ';">';
+                    headers.forEach(header => {
+                        let value = row[header] || '';
+                        // Truncate long values
+                        if (value.length > 50) {
+                            value = value.substring(0, 47) + '...';
+                        }
+                        tableHTML += '<td style="padding: 8px; border: 1px solid #ddd; white-space: nowrap;">' + value + '</td>';
+                    });
+                    tableHTML += '</tr>';
+                });
+                
+                tableHTML += '</tbody></table></div>';
+                
+                if (result.csv_data.length > 50) {
+                    tableHTML += '<p style="margin-top: 10px; color: #666; font-size: 12px;">Showing first 50 of ' + result.csv_data.length + ' definitions. Download CSV for full data.</p>';
+                }
+                
+                if (result.csv_filename) {
+                    tableHTML += '<p style="margin-top: 10px; color: #28a745; font-size: 12px;">📁 File saved: ' + result.csv_filename + '</p>';
+                }
+                
+                tableHTML += '</div>';
+                resultsHTML += tableHTML;
+            }
+            
+            resultsDiv.innerHTML = resultsHTML;
+            document.getElementById('results').style.display = 'block';
+        }
+
+        // Download definitions as CSV
+        function downloadDefinitionsCSV() {
+            if (!window.exportDefinitionsContent) {
+                alert('No definitions data available to download');
+                return;
+            }
+            
+            const blob = new Blob([window.exportDefinitionsContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            link.href = URL.createObjectURL(blob);
+            link.download = `pulse_definitions_${window.exportMode || 'export'}_${timestamp}.csv`;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
         // Reset form and return to home
         function resetForm() {
             // Reset all forms
-            const forms = ['copyDefinitionsForm', 'manageFollowersForm', 'swapDatasourcesForm', 'updatePreferencesForm', 'checkCertifiedForm', 'bulkScopedForm', 'analyticsForm', 'tcmLogsForm'];
+            const forms = ['copyDefinitionsForm', 'manageFollowersForm', 'swapDatasourcesForm', 'updatePreferencesForm', 'checkCertifiedForm', 'bulkScopedForm', 'analyticsForm', 'tcmLogsForm', 'exportDefinitionsForm'];
             forms.forEach(formId => {
                 const form = document.getElementById(formId);
                 if (form) form.reset();
