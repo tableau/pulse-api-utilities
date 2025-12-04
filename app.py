@@ -3134,8 +3134,9 @@ def export_definitions():
             datasource_id = datasource_info.get('id', '') if isinstance(datasource_info, dict) else str(datasource_info)
             datasource_name = datasource_map.get(datasource_id, datasource_id)
             
-            # Build row based on mode and type - Name first, then core fields
+            # Build row based on mode and type - Datasource Name first, then Name, then core fields
             row = {
+                'Datasource Name': datasource_name,
                 'Name': metadata.get('name', '')
             }
             
@@ -3167,10 +3168,9 @@ def export_definitions():
                 row['Time Dimension'] = '(Viz State)'
                 row['Definitional Filters'] = '(Viz State)'
             
-            # Add type, ID, and datasource after the core fields
+            # Add type and ID after the core fields
             row['Type'] = 'Viz State' if is_viz_state else 'Basic'
             row['Definition ID'] = metadata.get('id', '')
-            row['Datasource Name'] = datasource_name
             
             # Verbose fields (always include for both types)
             if export_mode == 'verbose':
