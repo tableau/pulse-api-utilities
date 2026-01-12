@@ -666,6 +666,26 @@ def get_all_metrics_for_definition_rest(server_url, auth_token, definition_id, e
         print(f"[Metrics Fetch] EXCEPTION: {str(e)}")
         return {'success': False, 'error': f"Error getting metrics: {str(e)}"}
 
+def delete_metric_rest(server_url, auth_token, metric_id):
+    """Delete a Pulse metric."""
+    url = f"{server_url}/api/-/pulse/metrics/{metric_id}"
+    
+    headers = {
+        'X-Tableau-Auth': auth_token,
+        'Accept': 'application/json'
+    }
+    
+    try:
+        response = requests.delete(url, headers=headers, verify=True)
+        
+        if response.status_code == 204:
+            return {'success': True}
+        else:
+            return {'success': False, 'error': f"Failed to delete metric. Status: {response.status_code}", 'response': response.text}
+            
+    except Exception as e:
+        return {'success': False, 'error': f"Error deleting metric: {str(e)}"}
+
 def get_all_subscriptions_rest(server_url, auth_token):
     """Get all subscriptions on the site, handling pagination."""
     headers = {
@@ -3837,6 +3857,7 @@ def zero_follower_metrics():
         site_content_url = data.get('site_content_url', '').strip()
         auth_method = data.get('auth_method')
         definition_id = data.get('definition_id', '').strip()
+        delete_metrics = data.get('delete_metrics', False)  # Checkbox value
         
         # Validate required fields
         if not all([server_host, site_content_url is not None, auth_method, definition_id]):
@@ -3930,30 +3951,12 @@ def zero_follower_metrics():
             metric_id = metric.get('id')
             is_default = metric.get('is_default', False)
             
-            # Build metric name
+            # Build metric name - simplified to just show definition name and type
             metric_name = definition_name
             if is_default:
                 metric_name += " (Default)"
             else:
-                # Check for filters to show scoping info
-                filters = metric.get('specification', {}).get('filters', [])
-                if filters:
-                    filter_descriptions = []
-                    for f in filters:
-                        field = f.get('field', 'Unknown')
-                        values = f.get('categorical_values', [])
-                        value_strs = []
-                        for v in values:
-                            if 'string_value' in v:
-                                value_strs.append(v['string_value'])
-                            elif 'bool_value' in v:
-                                value_strs.append(str(v['bool_value']))
-                        if value_strs:
-                            filter_descriptions.append(f"{field}: {', '.join(value_strs)}")
-                    if filter_descriptions:
-                        metric_name += f" ({'; '.join(filter_descriptions)})"
-                    else:
-                        metric_name += " (Scoped)"
+                metric_name += " (Scoped)"
             
             # Look up follower count from our pre-built map (no API call needed!)
             follower_count = metric_follower_counts.get(metric_id, 0)
@@ -3975,6 +3978,45 @@ def zero_follower_metrics():
         
         print(f"[Follower Analysis] COMPLETE: {len(zero_follower_metrics)} metrics with zero followers, {len(metrics_with_followers)} metrics with followers")
         
+        # Delete zero follower metrics if requested
+        deleted_count = 0
+        failed_deletions = 0
+        skipped_default = 0
+        
+        if delete_metrics and zero_follower_metrics:
+            print(f"[Deletion] Starting deletion of {len(zero_follower_metrics)} zero follower metrics...")
+            results.append({'success': True, 'message': f'🗑️ Starting deletion of {len(zero_follower_metrics)} zero follower metrics...'})
+            
+            for i, metric in enumerate(zero_follower_metrics, 1):
+                metric_id = metric['id']
+                is_default = metric['is_default']
+                
+                # Skip default metrics - they cannot be deleted
+                if is_default:
+                    skipped_default += 1
+                    if i % 50 == 0 or i == len(zero_follower_metrics):
+                        print(f"[Deletion] Processing {i}/{len(zero_follower_metrics)}... (skipped {skipped_default} default metrics)")
+                    continue
+                
+                if i % 50 == 0 or i == len(zero_follower_metrics):
+                    print(f"[Deletion] Deleting metric {i}/{len(zero_follower_metrics)}... (deleted: {deleted_count}, failed: {failed_deletions})")
+                
+                try:
+                    delete_result = delete_metric_rest(server_host, rest_token, metric_id)
+                    if delete_result['success']:
+                        deleted_count += 1
+                    else:
+                        failed_deletions += 1
+                        error_msg = delete_result.get('error', 'Unknown error')
+                        results.append({'success': False, 'message': f'❌ Failed to delete metric {metric_id}: {error_msg}'})
+                except Exception as e:
+                    failed_deletions += 1
+                    print(f"[Deletion] Exception deleting metric {metric_id}: {str(e)}")
+                    results.append({'success': False, 'message': f'❌ Exception deleting metric {metric_id}: {str(e)}'})
+            
+            print(f"[Deletion] COMPLETE: Deleted {deleted_count} metrics, {failed_deletions} failed, {skipped_default} skipped (default metrics)")
+            results.append({'success': True, 'message': f'✅ Deletion complete: {deleted_count} deleted, {failed_deletions} failed, {skipped_default} skipped (default)'})
+        
         # Sign out
         force_sign_out(server_host, rest_token)
         
@@ -3988,16 +4030,16 @@ def zero_follower_metrics():
         results.append({'success': True, 'message': f'🚫 Metrics with zero followers: {zero_count}'})
         results.append({'success': True, 'message': f'👥 Metrics with followers: {with_followers_count}'})
         
-        # Add details for zero follower metrics
+        # Add details for zero follower metrics (just IDs in a list)
         if zero_follower_metrics:
             results.append({'success': True, 'message': '---'})
-            results.append({'success': True, 'message': '🔍 Zero Follower Metrics:'})
-            for m in zero_follower_metrics:
-                default_badge = ' ⭐ DEFAULT' if m['is_default'] else ''
-                results.append({'success': True, 'message': f'  • {m["name"]}{default_badge}'})
-                results.append({'success': True, 'message': f'    ID: {m["id"]}'})
+            results.append({'success': True, 'message': f'🔍 Zero Follower Metrics ({zero_count}):'})
+            metric_ids_list = [m['id'] for m in zero_follower_metrics]
+            results.append({'success': True, 'message': f'  IDs: {", ".join(metric_ids_list)}'})
         
         summary = f"Found {zero_count} metric(s) with zero followers out of {total_metrics} total metrics"
+        if delete_metrics:
+            summary += f" | Deleted: {deleted_count}, Failed: {failed_deletions}, Skipped (default): {skipped_default}"
         
         return jsonify({
             'success': True,
@@ -4008,7 +4050,10 @@ def zero_follower_metrics():
             'total_metrics': total_metrics,
             'zero_follower_count': zero_count,
             'zero_follower_metrics': zero_follower_metrics,
-            'metrics_with_followers': metrics_with_followers
+            'metrics_with_followers': metrics_with_followers,
+            'deleted_count': deleted_count if delete_metrics else 0,
+            'failed_deletions': failed_deletions if delete_metrics else 0,
+            'skipped_default': skipped_default if delete_metrics else 0
         })
         
     except Exception as e:

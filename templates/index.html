@@ -1396,6 +1396,18 @@
                     </div>
                 </div>
 
+                <!-- Deletion Options -->
+                <div class="form-section">
+                    <h3>🗑️ Deletion Options</h3>
+                    <div class="form-row">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="zero_delete_metrics" name="delete_metrics" value="true">
+                            <span style="font-weight: 600;">Delete metrics with zero followers</span>
+                        </label>
+                        <small>⚠️ WARNING: This will permanently delete all non-default metrics that have zero followers. Default metrics cannot be deleted and will be skipped.</small>
+                    </div>
+                </div>
+
                 <div class="form-actions">
                     <button type="submit" class="button">🔍 Find Zero Follower Metrics</button>
                     <button type="button" class="button secondary" onclick="showTab('home')">← Back to Home</button>
@@ -2278,9 +2290,15 @@
             const formData = new FormData(event.target);
             const data = Object.fromEntries(formData.entries());
             
+            // Handle checkbox - if checked, set to true, otherwise false
+            data.delete_metrics = document.getElementById('zero_delete_metrics').checked;
+            
             // Clear previous results and show new progress
+            const progressMessage = data.delete_metrics 
+                ? '🔍 Analyzing and deleting metrics with zero followers...' 
+                : '🔍 Analyzing metrics for zero followers...';
             clearPreviousResults();
-            showProgress('🔍 Analyzing metrics for zero followers...', '🔍 Zero Follower Metrics Results');
+            showProgress(progressMessage, '🔍 Zero Follower Metrics Results');
             
             try {
                 const response = await fetch('/zero-follower-metrics', {
@@ -2335,30 +2353,46 @@
                 `;
             }
             
-            // Show zero follower metrics table
+            // Show deletion stats if deletion was performed
+            if (result.deleted_count !== undefined && result.deleted_count > 0) {
+                resultsHTML += `
+                    <div class="result-item" style="margin-top: 20px; padding: 15px; background-color: #f0f9ff; border-left: 4px solid #1f5f99;">
+                        <h4>🗑️ Deletion Results</h4>
+                        <ul style="margin: 10px 0; padding-left: 20px;">
+                            <li><strong>Deleted:</strong> ${result.deleted_count} metrics</li>
+                            <li><strong>Failed:</strong> ${result.failed_deletions || 0} metrics</li>
+                            <li><strong>Skipped (Default):</strong> ${result.skipped_default || 0} metrics</li>
+                        </ul>
+                    </div>
+                `;
+            }
+            
+            // Show zero follower metrics IDs in a list
             if (result.zero_follower_metrics && result.zero_follower_metrics.length > 0) {
+                const metricIds = result.zero_follower_metrics.map(m => m.id);
+                const defaultMetrics = result.zero_follower_metrics.filter(m => m.is_default);
+                const scopedMetrics = result.zero_follower_metrics.filter(m => !m.is_default);
+                
                 resultsHTML += `
                     <div class="result-item" style="margin-top: 20px;">
                         <h4>🚫 Metrics with Zero Followers (${result.zero_follower_metrics.length})</h4>
-                        <div style="overflow-x: auto; margin-top: 10px;">
-                            <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
-                                <thead>
-                                    <tr style="background: #f3f4f6;">
-                                        <th style="padding: 10px; text-align: left; border: 1px solid #e5e7eb;">Metric Name</th>
-                                        <th style="padding: 10px; text-align: left; border: 1px solid #e5e7eb;">Default</th>
-                                        <th style="padding: 10px; text-align: left; border: 1px solid #e5e7eb;">Metric ID</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${result.zero_follower_metrics.map((m, i) => `
-                                        <tr style="background: ${i % 2 === 0 ? '#fff' : '#f9f9f9'};">
-                                            <td style="padding: 10px; border: 1px solid #e5e7eb;">${m.name}</td>
-                                            <td style="padding: 10px; border: 1px solid #e5e7eb;">${m.is_default ? '⭐ Yes' : 'No'}</td>
-                                            <td style="padding: 10px; border: 1px solid #e5e7eb; font-family: monospace; font-size: 0.8rem;">${m.id}</td>
-                                        </tr>
-                                    `).join('')}
-                                </tbody>
-                            </table>
+                        <div style="margin-top: 10px; padding: 15px; background-color: #f9f9f9; border-radius: 6px;">
+                            <p style="margin-bottom: 10px;"><strong>All Metric IDs:</strong></p>
+                            <p style="font-family: monospace; font-size: 0.85rem; word-break: break-all; color: #374151;">
+                                ${metricIds.join(', ')}
+                            </p>
+                            ${defaultMetrics.length > 0 ? `
+                                <p style="margin-top: 15px; margin-bottom: 5px;"><strong>Default Metrics (${defaultMetrics.length}):</strong></p>
+                                <p style="font-family: monospace; font-size: 0.85rem; word-break: break-all; color: #374151;">
+                                    ${defaultMetrics.map(m => m.id).join(', ')}
+                                </p>
+                            ` : ''}
+                            ${scopedMetrics.length > 0 ? `
+                                <p style="margin-top: 15px; margin-bottom: 5px;"><strong>Scoped Metrics (${scopedMetrics.length}):</strong></p>
+                                <p style="font-family: monospace; font-size: 0.85rem; word-break: break-all; color: #374151;">
+                                    ${scopedMetrics.map(m => m.id).join(', ')}
+                                </p>
+                            ` : ''}
                         </div>
                     </div>
                 `;
