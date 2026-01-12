@@ -1,6 +1,6 @@
 # Tableau Pulse Utilities
 
-A comprehensive web application suite for managing Tableau Pulse with seven powerful utilities, built with Python Flask and featuring a modern, responsive UI.
+A comprehensive web application suite for managing Tableau Pulse with eight powerful utilities, built with Python Flask and featuring a modern, responsive UI.
 
 ## 🚀 Available Utilities
 
@@ -55,6 +55,14 @@ Get comprehensive insights and analytics about Pulse metric usage across your si
 - **🗄️ Datasource Usage**: Understand which datasources are driving the most engagement
 - **✅ Certification Insights**: Track how many definitions are certified
 - **Interactive Dashboard**: Visual cards and sortable tables for easy analysis
+
+### 8. 📑 Export Definitions
+Export all Pulse metric definitions to CSV for documentation or analysis
+- **📋 Basic Mode**: Export essential fields - Name, Measure, Time Dimension, Definitional Filters, Datasource Name
+- **📊 Verbose Mode**: Export all configuration details including extension options, comparisons, certification status, and more
+- **🎨 Viz State Support**: Handles Viz State definitions appropriately (marks measure/filters as embedded)
+- **📥 Download CSV**: Tab-delimited CSV file with one row per definition
+- **🗄️ Datasource Names**: Automatically resolves datasource IDs to names
 
 ## ✨ Common Features
 
@@ -280,6 +288,33 @@ hello-world-app/
    - Track certification progress across your organization
    - Make data-driven decisions about which metrics to promote or retire
 
+### 📑 Using Export Definitions
+1. **Server Connection**:
+   - Enter Tableau Server URL and API version
+   - Provide site content URL and authentication credentials
+
+2. **Export Mode Selection**:
+   - **Basic Mode**: Exports essential fields only
+     - Name, Measure, Time Dimension, Definitional Filters, Type, Definition ID, Datasource Name
+   - **Verbose Mode**: Exports all configuration details including:
+     - All basic fields plus Description, Datasource info, Running Total setting
+     - Extension options (Allowed Dimensions, Granularities, Offset settings)
+     - Representation options (Number Format, Sentiment Type, Units)
+     - Insights settings, Comparisons, Certification status
+     - Related Links count, Goals count, Created/Modified timestamps
+
+3. **Execute**: Click "📑 Export Definitions" and wait for processing
+
+4. **View & Download Results**:
+   - Preview the first 50 definitions in an interactive table
+   - Click "📥 Download CSV" to get the complete tab-delimited file
+   - File is also automatically saved to the server directory
+
+   **Note on Viz State Definitions**:
+   - Definitions created from existing visualizations show "(Viz State)" for Measure, Time Dimension, and Filters
+   - These values are embedded in the visualization and cannot be extracted separately
+   - All other fields (verbose mode) are exported normally
+
 ## 🔌 API Endpoints
 
 - `GET /` - Main utilities selection interface
@@ -291,6 +326,7 @@ hello-world-app/
 - `POST /check-certified-metrics` - Check certified metrics and remove unauthorized certifications
 - `POST /bulk-create-scoped-metrics` - Create multiple scoped metrics from a source metric
 - `POST /pulse-analytics` - Generate comprehensive analytics about Pulse usage
+- `POST /export-definitions` - Export all metric definitions to CSV
 
 ## Customization
 
@@ -335,7 +371,7 @@ hello-world-app/
 
 ## 🎯 What's Included
 
-This application suite includes seven powerful utilities for managing Tableau Pulse:
+This application suite includes eight powerful utilities for managing Tableau Pulse:
 
 ### Available Utilities:
 1. **Pulse Definition Copier** - Copy definitions between sites
@@ -345,6 +381,7 @@ This application suite includes seven powerful utilities for managing Tableau Pu
 5. **Check Certified Metrics** - View and manage metric certifications
 6. **Bulk Create Scoped Metrics** - Create multiple scoped metrics with dimension filters
 7. **Pulse Analytics** - Get comprehensive insights into metric usage and follower engagement
+8. **Export Definitions** - Export all metric definitions to CSV for documentation
 
 ### Benefits of the Web Interface:
 - **🌐 No CLI Required**: Everything runs through the web browser
@@ -353,7 +390,7 @@ This application suite includes seven powerful utilities for managing Tableau Pu
 - **🔒 Security**: Credentials are handled securely without persistent storage
 - **🚀 Enhanced Functionality**: Same power as the original CLI scripts with improved usability
 - **📱 Accessibility**: Works on any device with a web browser
-- **🏠 Unified Interface**: All seven utilities in one convenient location
+- **🏠 Unified Interface**: All eight utilities in one convenient location
 
 ### Technical Features:
 - Modern Flask web framework
@@ -363,4 +400,4 @@ This application suite includes seven powerful utilities for managing Tableau Pu
 - Beautiful, responsive UI with animations
 - Support for both JSON and XML API authentication methods
 
-Transform your Tableau Pulse management workflow with this powerful web application suite! 🚀📊👥🔄⚙️✅📊📈
+Transform your Tableau Pulse management workflow with this powerful web application suite! 🚀📊👥🔄⚙️✅📊📈📑

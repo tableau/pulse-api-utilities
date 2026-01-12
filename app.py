@@ -3114,6 +3114,280 @@ def pulse_analytics():
             'error_type': type(e).__name__
         })
 
+@app.route('/export-definitions', methods=['POST'])
+def export_definitions():
+    """Export Pulse metric definitions to CSV with configurable detail level"""
+    try:
+        data = request.json
+        results = []
+        
+        # Extract form data
+        server_url = data.get('server_url', '').rstrip('/')
+        api_version = data.get('api_version', '3.26')
+        site_content_url = data.get('site_content_url', '')
+        auth_method = data.get('auth_method')
+        export_mode = data.get('export_mode', 'basic')  # 'basic' or 'verbose'
+        
+        # Authentication data
+        username = data.get('username')
+        password = data.get('password')
+        pat_name = data.get('pat_name')
+        pat_token = data.get('pat_token')
+        
+        # Validate required fields
+        if not all([server_url, auth_method]):
+            return jsonify({
+                'success': False,
+                'error': 'Missing required fields: server_url and auth_method are required'
+            })
+        
+        results.append({'success': True, 'message': '🚀 Starting Definition Export...'})
+        results.append({'success': True, 'message': f'📋 Export mode: {export_mode.upper()}'})
+        
+        # Authenticate
+        results.append({'success': True, 'message': '🔐 Authenticating with Tableau Server...'})
+        
+        auth_result = authenticate_tableau_rest(
+            server_url, api_version, site_content_url, auth_method,
+            username, password, pat_name, pat_token
+        )
+        
+        if not auth_result['success']:
+            return jsonify({
+                'success': False,
+                'error': f"Authentication failed: {auth_result['error']}"
+            })
+        
+        auth_token = auth_result['auth_token']
+        site_id = auth_result.get('site_id', '')
+        results.append({'success': True, 'message': '✅ Authentication successful!'})
+        
+        # Get all definitions
+        results.append({'success': True, 'message': '📊 Fetching metric definitions...'})
+        
+        definitions_url = f"{server_url}/api/-/pulse/definitions?page_size=1000"
+        headers = {'X-Tableau-Auth': auth_token, 'Accept': 'application/json'}
+        
+        response = requests.get(definitions_url, headers=headers, verify=True, timeout=30)
+        
+        if response.status_code != 200:
+            return jsonify({
+                'success': False,
+                'error': f"Failed to fetch definitions: {response.status_code}"
+            })
+        
+        definitions_data = response.json()
+        definitions = (definitions_data.get('metric_definitions', []) or 
+                      definitions_data.get('definitions', []) or [])
+        
+        results.append({'success': True, 'message': f'✅ Found {len(definitions)} definitions'})
+        
+        # Get datasource names for mapping
+        results.append({'success': True, 'message': '🗄️ Fetching datasource names...'})
+        datasources_result = get_all_datasources_rest(server_url, auth_token, site_id, api_version)
+        datasource_map = {}
+        if datasources_result['success']:
+            datasource_map = datasources_result.get('datasources', {})
+            results.append({'success': True, 'message': f'  ✅ Found {len(datasource_map)} datasources for name lookup'})
+        else:
+            results.append({'success': False, 'message': f'  ⚠️ Could not fetch datasources: {datasources_result.get("error", "Unknown error")}'})
+        
+        # Process definitions and build CSV data
+        results.append({'success': True, 'message': '📝 Processing definitions...'})
+        
+        csv_rows = []
+        basic_count = 0
+        viz_state_count = 0
+        
+        for definition in definitions:
+            metadata = definition.get('metadata', {})
+            spec = definition.get('specification', {})
+            extension_opts = definition.get('extension_options', {})
+            representation_opts = definition.get('representation_options', {})
+            insights_opts = definition.get('insights_options', {})
+            comparisons = definition.get('comparisons', {})
+            certification = definition.get('certification', {})
+            
+            # Determine definition type
+            is_viz_state = 'viz_state_specification' in spec
+            if is_viz_state:
+                viz_state_count += 1
+            else:
+                basic_count += 1
+            
+            # Get basic_specification or empty dict
+            basic_spec = spec.get('basic_specification', {})
+            
+            # Get datasource info
+            datasource_info = spec.get('datasource', {})
+            datasource_id = datasource_info.get('id', '') if isinstance(datasource_info, dict) else str(datasource_info)
+            datasource_name = datasource_map.get(datasource_id, '')
+            
+            # If not found in map, try querying the datasource directly by LUID
+            if not datasource_name and datasource_id:
+                try:
+                    ds_url = f"{server_url}/api/{api_version}/sites/{site_id}/datasources/{datasource_id}"
+                    ds_response = requests.get(ds_url, headers=headers, verify=True, timeout=10)
+                    if ds_response.status_code == 200:
+                        ds_data = ds_response.json()
+                        datasource_name = ds_data.get('datasource', {}).get('name', '')
+                        # Cache it for future lookups
+                        if datasource_name:
+                            datasource_map[datasource_id] = datasource_name
+                except Exception as e:
+                    print(f"DEBUG: Failed to lookup datasource {datasource_id}: {str(e)}")
+            
+            # If still no name found, use the ID as fallback
+            if not datasource_name:
+                datasource_name = datasource_id if datasource_id else 'Unknown'
+            
+            # Build row based on mode and type - Datasource Name first, then Name, then core fields
+            row = {
+                'Datasource Name': datasource_name,
+                'Name': metadata.get('name', '')
+            }
+            
+            # For basic definitions (not viz-state), add measure, time dimension, filters
+            if not is_viz_state:
+                # Measure
+                measure = basic_spec.get('measure', {})
+                aggregation = measure.get('aggregation', '')
+                measure_field = measure.get('field', '')
+                row['Measure'] = f"{aggregation}({measure_field})" if measure_field else aggregation
+                
+                # Time Dimension
+                time_dim = basic_spec.get('time_dimension', {})
+                row['Time Dimension'] = time_dim.get('field', '')
+                
+                # Filters
+                filters = basic_spec.get('filters', [])
+                filter_strs = []
+                for f in filters:
+                    field = f.get('field', '')
+                    operator = f.get('operator', '').replace('OPERATOR_', '')
+                    values = f.get('categorical_values', [])
+                    value_strs = [v.get('string_value', '') for v in values]
+                    filter_strs.append(f"{field} {operator} {', '.join(value_strs)}")
+                row['Definitional Filters'] = ' | '.join(filter_strs) if filter_strs else ''
+            else:
+                # For viz-state, leave these empty
+                row['Measure'] = '(Viz State)'
+                row['Time Dimension'] = '(Viz State)'
+                row['Definitional Filters'] = '(Viz State)'
+            
+            # Add type and ID after the core fields
+            row['Type'] = 'Viz State' if is_viz_state else 'Basic'
+            row['Definition ID'] = metadata.get('id', '')
+            
+            # Verbose fields (always include for both types)
+            if export_mode == 'verbose':
+                row['Description'] = metadata.get('description', '')
+                row['Datasource ID'] = datasource_id
+                row['Is Running Total'] = str(spec.get('is_running_total', False))
+                
+                # Extension options
+                row['Allowed Dimensions'] = ', '.join(extension_opts.get('allowed_dimensions', []))
+                row['Allowed Granularities'] = ', '.join(extension_opts.get('allowed_granularities', []))
+                row['Offset From Today'] = str(extension_opts.get('offset_from_today', 0))
+                row['Use Dynamic Offset'] = str(extension_opts.get('use_dynamic_offset', False))
+                
+                # Representation options
+                row['Number Format'] = representation_opts.get('type', '').replace('NUMBER_FORMAT_TYPE_', '')
+                row['Sentiment Type'] = representation_opts.get('sentiment_type', '').replace('SENTIMENT_TYPE_', '')
+                row['Number Units'] = representation_opts.get('number_units', {}).get('singular_noun', '') if isinstance(representation_opts.get('number_units'), dict) else ''
+                
+                # Insights
+                row['Show Insights'] = str(insights_opts.get('show_insights', True))
+                
+                # Comparisons
+                comp_list = comparisons.get('comparisons', [])
+                comp_strs = []
+                for c in comp_list:
+                    comp_type = c.get('comparison', '').replace('COMPARISON_', '')
+                    comp_strs.append(comp_type)
+                row['Comparisons'] = ', '.join(comp_strs) if comp_strs else ''
+                
+                # Certification
+                row['Is Certified'] = str(certification.get('is_certified', False))
+                row['Certification Note'] = certification.get('note', '')
+                
+                # Related links
+                related_links = definition.get('related_links', [])
+                row['Related Links Count'] = str(len(related_links))
+                
+                # Goals
+                goals = definition.get('datasource_goals', [])
+                row['Goals Count'] = str(len(goals))
+                
+                # Metadata timestamps
+                row['Created At'] = metadata.get('created_at', '')
+                row['Modified At'] = metadata.get('modified_at', '')
+            
+            csv_rows.append(row)
+        
+        results.append({'success': True, 'message': f'  📊 Basic definitions: {basic_count}'})
+        results.append({'success': True, 'message': f'  🎨 Viz State definitions: {viz_state_count}'})
+        
+        # Generate CSV content
+        results.append({'success': True, 'message': '📄 Generating CSV...'})
+        
+        if not csv_rows:
+            return jsonify({
+                'success': True,
+                'results': results,
+                'summary': 'No definitions found',
+                'csv_data': [],
+                'csv_content': ''
+            })
+        
+        # Get column headers from first row
+        fieldnames = list(csv_rows[0].keys())
+        
+        # Create CSV content
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=fieldnames, delimiter='\t')
+        writer.writeheader()
+        for row in csv_rows:
+            writer.writerow(row)
+        
+        csv_content = output.getvalue()
+        
+        # Also save to file
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        csv_filename = f"pulse_definitions_{export_mode}_{timestamp}.csv"
+        csv_path = os.path.join(os.path.dirname(__file__), csv_filename)
+        
+        try:
+            with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+                f.write(csv_content)
+            results.append({'success': True, 'message': f'💾 Saved to: {csv_filename}'})
+        except Exception as e:
+            results.append({'success': False, 'message': f'⚠️ Could not save file: {str(e)}'})
+        
+        results.append({'success': True, 'message': '\n✅ Export complete!'})
+        
+        return jsonify({
+            'success': True,
+            'results': results,
+            'summary': f"Exported {len(csv_rows)} definitions ({basic_count} basic, {viz_state_count} viz-state)",
+            'csv_data': csv_rows,
+            'csv_columns': fieldnames,  # Ordered column names for UI table
+            'csv_content': csv_content,
+            'csv_filename': csv_filename,
+            'export_mode': export_mode
+        })
+        
+    except Exception as e:
+        tb_str = traceback.format_exc()
+        print(f"ERROR in export_definitions: {tb_str}")
+        
+        return jsonify({
+            'success': False,
+            'error': f'Unexpected error: {str(e)}',
+            'traceback': tb_str,
+            'error_type': type(e).__name__
+        })
+
 @app.route('/tcm-activity-logs', methods=['POST'])
 def tcm_activity_logs():
     """Fetch Tableau Cloud Manager activity logs for a site"""
