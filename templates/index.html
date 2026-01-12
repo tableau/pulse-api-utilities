@@ -505,6 +505,7 @@
             <button class="tab-button" onclick="showTab('bulk-scoped')">📊 Bulk Scoped Metrics</button>
             <button class="tab-button" onclick="showTab('analytics')">📈 Analytics</button>
             <button class="tab-button" onclick="showTab('tcm-logs')">📋 TCM Logs</button>
+            <button class="tab-button" onclick="showTab('zero-followers')">🔍 Zero Followers</button>
         </div>
 
         <!-- Home Tab - Utility Selector -->
@@ -606,6 +607,18 @@
                             <span>📥 Download activity logs</span>
                             <span>📅 Last 14 days by default</span>
                             <span>🔍 Combined log view</span>
+                        </div>
+                        <button class="utility-button">Get Started</button>
+                    </div>
+
+                    <div class="utility-card" onclick="showTab('zero-followers')">
+                        <div class="utility-icon">🔍</div>
+                        <h3>Zero Follower Metrics</h3>
+                        <p>Find metrics within a definition that have no followers</p>
+                        <div class="utility-features">
+                            <span>📊 Analyze by definition ID</span>
+                            <span>🚫 Identify unused metrics</span>
+                            <span>📋 Get metric details</span>
                         </div>
                         <button class="utility-button">Get Started</button>
                     </div>
@@ -1326,6 +1339,65 @@
 
                 <div class="form-actions">
                     <button type="submit" class="button">📋 Fetch Activity Logs</button>
+                    <button type="button" class="button secondary" onclick="showTab('home')">← Back to Home</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Zero Follower Metrics Tab -->
+        <div id="zero-followers" class="tab-content">
+            <div class="form-header">
+                <h2>🔍 Zero Follower Metrics</h2>
+                <p>Find metrics within a definition that have no followers</p>
+                <button type="button" class="button secondary back-button" onclick="showTab('home')">← Back to Home</button>
+            </div>
+            
+            <form id="zeroFollowersForm" onsubmit="submitZeroFollowers(event)">
+                <!-- Site Connection Section -->
+                <div class="form-section">
+                    <h3>🔗 Site Connection</h3>
+                    <div class="form-row">
+                        <input type="text" id="zero_host" name="server_host" placeholder="Tableau Server URL (e.g., https://your-server.com)" required>
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="zero_site" name="site_content_url" placeholder="Site Content URL (blank for Default)">
+                    </div>
+                    <div class="form-row">
+                        <select id="zero_auth_method" name="auth_method" onchange="toggleAuthFields('zero')" required>
+                            <option value="">Select Authentication Method</option>
+                            <option value="password">Username/Password</option>
+                            <option value="pat">Personal Access Token</option>
+                        </select>
+                    </div>
+                    <div id="zero_user_auth" class="auth-fields" style="display: none;">
+                        <div class="form-row">
+                            <input type="text" id="zero_username" name="username" placeholder="Username">
+                        </div>
+                        <div class="form-row">
+                            <input type="password" id="zero_password" name="password" placeholder="Password">
+                        </div>
+                    </div>
+                    <div id="zero_pat_auth" class="auth-fields" style="display: none;">
+                        <div class="form-row">
+                            <input type="text" id="zero_pat_name" name="pat_name" placeholder="PAT Name">
+                        </div>
+                        <div class="form-row">
+                            <input type="password" id="zero_pat_token" name="pat_token" placeholder="PAT Token">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Definition Selection -->
+                <div class="form-section">
+                    <h3>📊 Definition Selection</h3>
+                    <div class="form-row">
+                        <input type="text" id="zero_definition_id" name="definition_id" placeholder="Pulse Definition ID" required>
+                        <small>Enter the ID of the Pulse definition to analyze for metrics with zero followers</small>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="button">🔍 Find Zero Follower Metrics</button>
                     <button type="button" class="button secondary" onclick="showTab('home')">← Back to Home</button>
                 </div>
             </form>
@@ -2200,10 +2272,137 @@
             }
         }
 
+        async function submitZeroFollowers(event) {
+            event.preventDefault();
+            
+            const formData = new FormData(event.target);
+            const data = Object.fromEntries(formData.entries());
+            
+            // Clear previous results and show new progress
+            clearPreviousResults();
+            showProgress('🔍 Analyzing metrics for zero followers...', '🔍 Zero Follower Metrics Results');
+            
+            try {
+                const response = await fetch('/zero-follower-metrics', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showZeroFollowerResults(result, '✅ Analysis completed!');
+                } else {
+                    showError(result.error || 'Unknown error occurred', '❌ Zero follower analysis failed');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showError('Failed to communicate with server: ' + error.message, '❌ Zero follower analysis failed');
+            }
+        }
+
+        function showZeroFollowerResults(result, completionMessage = '✅ Analysis completed!') {
+            const progressDiv = document.getElementById('progress');
+            const resultsDiv = document.getElementById('copyResults');
+            
+            progressDiv.innerHTML = completionMessage;
+            
+            let resultsHTML = '';
+            
+            // Show progress messages
+            if (result.results && result.results.length > 0) {
+                result.results.forEach(item => {
+                    const statusClass = item.success ? 'success' : 'error';
+                    const statusIcon = item.success ? '✅' : '❌';
+                    resultsHTML += `
+                        <div class="result-item ${statusClass}">
+                            ${statusIcon} ${item.message}
+                        </div>
+                    `;
+                });
+            }
+            
+            // Show summary
+            if (result.summary) {
+                resultsHTML += `
+                    <div class="result-item">
+                        <strong>📊 Summary:</strong><br>
+                        ${result.summary}
+                    </div>
+                `;
+            }
+            
+            // Show zero follower metrics table
+            if (result.zero_follower_metrics && result.zero_follower_metrics.length > 0) {
+                resultsHTML += `
+                    <div class="result-item" style="margin-top: 20px;">
+                        <h4>🚫 Metrics with Zero Followers (${result.zero_follower_metrics.length})</h4>
+                        <div style="overflow-x: auto; margin-top: 10px;">
+                            <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+                                <thead>
+                                    <tr style="background: #f3f4f6;">
+                                        <th style="padding: 10px; text-align: left; border: 1px solid #e5e7eb;">Metric Name</th>
+                                        <th style="padding: 10px; text-align: left; border: 1px solid #e5e7eb;">Default</th>
+                                        <th style="padding: 10px; text-align: left; border: 1px solid #e5e7eb;">Metric ID</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${result.zero_follower_metrics.map((m, i) => `
+                                        <tr style="background: ${i % 2 === 0 ? '#fff' : '#f9f9f9'};">
+                                            <td style="padding: 10px; border: 1px solid #e5e7eb;">${m.name}</td>
+                                            <td style="padding: 10px; border: 1px solid #e5e7eb;">${m.is_default ? '⭐ Yes' : 'No'}</td>
+                                            <td style="padding: 10px; border: 1px solid #e5e7eb; font-family: monospace; font-size: 0.8rem;">${m.id}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Show metrics with followers for comparison
+            if (result.metrics_with_followers && result.metrics_with_followers.length > 0) {
+                resultsHTML += `
+                    <div class="result-item" style="margin-top: 20px;">
+                        <h4>👥 Metrics with Followers (${result.metrics_with_followers.length})</h4>
+                        <div style="overflow-x: auto; margin-top: 10px;">
+                            <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+                                <thead>
+                                    <tr style="background: #f3f4f6;">
+                                        <th style="padding: 10px; text-align: left; border: 1px solid #e5e7eb;">Metric Name</th>
+                                        <th style="padding: 10px; text-align: left; border: 1px solid #e5e7eb;">Default</th>
+                                        <th style="padding: 10px; text-align: left; border: 1px solid #e5e7eb;">Followers</th>
+                                        <th style="padding: 10px; text-align: left; border: 1px solid #e5e7eb;">Metric ID</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${result.metrics_with_followers.map((m, i) => `
+                                        <tr style="background: ${i % 2 === 0 ? '#fff' : '#f9f9f9'};">
+                                            <td style="padding: 10px; border: 1px solid #e5e7eb;">${m.name}</td>
+                                            <td style="padding: 10px; border: 1px solid #e5e7eb;">${m.is_default ? '⭐ Yes' : 'No'}</td>
+                                            <td style="padding: 10px; border: 1px solid #e5e7eb; font-weight: bold; color: #1f5f99;">${m.follower_count}</td>
+                                            <td style="padding: 10px; border: 1px solid #e5e7eb; font-family: monospace; font-size: 0.8rem;">${m.id}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            resultsDiv.innerHTML = resultsHTML;
+            document.getElementById('results').style.display = 'block';
+        }
+
         // Reset form and return to home
         function resetForm() {
             // Reset all forms
-            const forms = ['copyDefinitionsForm', 'manageFollowersForm', 'swapDatasourcesForm', 'updatePreferencesForm', 'checkCertifiedForm', 'bulkScopedForm', 'analyticsForm', 'tcmLogsForm'];
+            const forms = ['copyDefinitionsForm', 'manageFollowersForm', 'swapDatasourcesForm', 'updatePreferencesForm', 'checkCertifiedForm', 'bulkScopedForm', 'analyticsForm', 'tcmLogsForm', 'zeroFollowersForm'];
             forms.forEach(formId => {
                 const form = document.getElementById(formId);
                 if (form) form.reset();

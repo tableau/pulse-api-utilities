@@ -604,53 +604,118 @@ def get_metric_details_rest(server_url, auth_token, metric_id):
     except Exception as e:
         return {'success': False, 'error': f"Error getting metric: {str(e)}"}
 
-def get_all_metrics_for_definition_rest(server_url, auth_token, definition_id):
-    """Get all metrics for a specific definition."""
-    url = f"{server_url}/api/-/pulse/metrics?definition_id={definition_id}&page_size=1000"
+def get_all_metrics_for_definition_rest(server_url, auth_token, definition_id, exclude_metrics_without_followers=True):
+    """Get all metrics for a specific definition, handling pagination.
     
+    Args:
+        server_url: The Tableau server URL
+        auth_token: The authentication token
+        definition_id: The pulse definition ID
+        exclude_metrics_without_followers: If True (default), excludes metrics with no followers.
+                                           Set to False to include all metrics.
+    """
     headers = {
         'X-Tableau-Auth': auth_token,
         'Accept': 'application/json'
     }
     
+    all_metrics = []
+    page_token = None
+    page_count = 0
+    page_size = 30  # Match Pulse UI page size
+    
+    print(f"[Metrics Fetch] Starting to retrieve metrics for definition {definition_id}")
+    print(f"[Metrics Fetch] Page size: {page_size}, exclude_metrics_without_followers: {exclude_metrics_without_followers}")
+    
     try:
-        response = requests.get(url, headers=headers, verify=True)
+        while True:
+            # Build URL with pagination
+            url = f"{server_url}/api/-/pulse/definitions/{definition_id}/metrics?page_size={page_size}&exclude_metrics_without_followers={str(exclude_metrics_without_followers).lower()}"
+            if page_token:
+                url += f"&page_token={page_token}"
+            
+            page_count += 1
+            print(f"[Metrics Fetch] Fetching page {page_count}...")
+            
+            response = requests.get(url, headers=headers, verify=True)
+            
+            if response.status_code == 200:
+                response_data = response.json()
+                metrics = response_data.get('metrics', [])
+                all_metrics.extend(metrics)
+                print(f"[Metrics Fetch] Page {page_count}: Retrieved {len(metrics)} metrics (total so far: {len(all_metrics)})")
+                
+                # Check for next page
+                next_page_token = response_data.get('next_page_token')
+                if next_page_token:
+                    page_token = next_page_token
+                    print(f"[Metrics Fetch] More pages available, continuing...")
+                else:
+                    # No more pages
+                    print(f"[Metrics Fetch] No more pages.")
+                    break
+            else:
+                print(f"[Metrics Fetch] ERROR: API returned status {response.status_code}")
+                print(f"[Metrics Fetch] Response: {response.text}")
+                return {'success': False, 'error': f"Failed to get metrics. Status: {response.status_code}", 'response': response.text}
         
-        print(f"DEBUG: Metrics API response status for {definition_id}: {response.status_code}")
-        
-        if response.status_code == 200:
-            response_data = response.json()
-            metrics = response_data.get('metrics', [])
-            print(f"DEBUG: Metrics API returned {len(metrics)} metrics for {definition_id}")
-            if metrics:
-                print(f"DEBUG: First metric ID: {metrics[0].get('id', 'Unknown')}")
-            return {'success': True, 'metrics': metrics}
-        else:
-            print(f"DEBUG: Metrics API error: {response.text}")
-            return {'success': False, 'error': f"Failed to get metrics. Status: {response.status_code}", 'response': response.text}
+        print(f"[Metrics Fetch] COMPLETE: Retrieved {len(all_metrics)} total metrics across {page_count} page(s)")
+        return {'success': True, 'metrics': all_metrics}
             
     except Exception as e:
-        print(f"DEBUG: Exception getting metrics: {str(e)}")
+        print(f"[Metrics Fetch] EXCEPTION: {str(e)}")
         return {'success': False, 'error': f"Error getting metrics: {str(e)}"}
 
 def get_all_subscriptions_rest(server_url, auth_token):
-    """Get all subscriptions on the site."""
-    url = f"{server_url}/api/-/pulse/subscriptions?page_size=1000"
-    
+    """Get all subscriptions on the site, handling pagination."""
     headers = {
         'X-Tableau-Auth': auth_token,
         'Accept': 'application/json'
     }
     
+    all_subscriptions = []
+    page_token = None
+    page_count = 0
+    page_size = 100  # Reasonable page size for subscriptions
+    
+    print(f"[Subscriptions Fetch] Starting to retrieve all subscriptions...")
+    print(f"[Subscriptions Fetch] Page size: {page_size}")
+    
     try:
-        response = requests.get(url, headers=headers, verify=True)
+        while True:
+            # Build URL with pagination
+            url = f"{server_url}/api/-/pulse/subscriptions?page_size={page_size}"
+            if page_token:
+                url += f"&page_token={page_token}"
+            
+            page_count += 1
+            print(f"[Subscriptions Fetch] Fetching page {page_count}...")
+            
+            response = requests.get(url, headers=headers, verify=True)
+            
+            if response.status_code == 200:
+                response_data = response.json()
+                subscriptions = response_data.get('subscriptions', [])
+                all_subscriptions.extend(subscriptions)
+                print(f"[Subscriptions Fetch] Page {page_count}: Retrieved {len(subscriptions)} subscriptions (total so far: {len(all_subscriptions)})")
+                
+                # Check for next page
+                next_page_token = response_data.get('next_page_token')
+                if next_page_token:
+                    page_token = next_page_token
+                    print(f"[Subscriptions Fetch] More pages available, continuing...")
+                else:
+                    print(f"[Subscriptions Fetch] No more pages.")
+                    break
+            else:
+                print(f"[Subscriptions Fetch] ERROR: API returned status {response.status_code}")
+                return {'success': False, 'error': f"Failed to get subscriptions. Status: {response.status_code}"}
         
-        if response.status_code == 200:
-            return {'success': True, 'subscriptions': response.json().get('subscriptions', [])}
-        else:
-            return {'success': False, 'error': f"Failed to get subscriptions. Status: {response.status_code}"}
+        print(f"[Subscriptions Fetch] COMPLETE: Retrieved {len(all_subscriptions)} total subscriptions across {page_count} page(s)")
+        return {'success': True, 'subscriptions': all_subscriptions}
             
     except Exception as e:
+        print(f"[Subscriptions Fetch] EXCEPTION: {str(e)}")
         return {'success': False, 'error': f"Error getting subscriptions: {str(e)}"}
 
 def create_scoped_metric_rest(server_url, auth_token, definition_id, metric_specification):
@@ -3759,6 +3824,203 @@ def tcm_activity_logs():
             'traceback': tb_str,
             'error_type': type(e).__name__
         })
+
+@app.route('/zero-follower-metrics', methods=['POST'])
+def zero_follower_metrics():
+    """Find metrics within a definition that have zero followers"""
+    try:
+        data = request.get_json()
+        results = []
+        
+        # Extract form data
+        server_host = data.get('server_host', '').strip().rstrip('/')
+        site_content_url = data.get('site_content_url', '').strip()
+        auth_method = data.get('auth_method')
+        definition_id = data.get('definition_id', '').strip()
+        
+        # Validate required fields
+        if not all([server_host, site_content_url is not None, auth_method, definition_id]):
+            return jsonify({
+                'success': False,
+                'error': 'All fields are required (server host, site content URL, auth method, and definition ID)'
+            })
+        
+        results.append({'success': True, 'message': '🚀 Starting zero follower metric analysis...'})
+        
+        # Sign in to server
+        try:
+            if auth_method == 'password':
+                username = data.get('username', '').strip()
+                password = data.get('password', '').strip()
+                if not username or not password:
+                    return jsonify({'success': False, 'error': 'Username and password are required'})
+                rest_token, site_id = sign_in_rest_xml(server_host, site_content_url, "password", 
+                                                     username=username, password=password)
+            elif auth_method == 'pat':
+                pat_name = data.get('pat_name', '').strip()
+                pat_token = data.get('pat_token', '').strip()
+                if not pat_name or not pat_token:
+                    return jsonify({'success': False, 'error': 'PAT name and token are required'})
+                rest_token, site_id = sign_in_rest_xml(server_host, site_content_url, "pat", 
+                                                     pat_name=pat_name, pat_token=pat_token)
+            else:
+                return jsonify({'success': False, 'error': 'Invalid authentication method'})
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Authentication failed: {str(e)}'})
+        
+        results.append({'success': True, 'message': '✅ Signed in successfully'})
+        
+        # Get the definition details to get its name
+        try:
+            definition = get_pulse_definition(server_host, definition_id, rest_token)
+            definition_name = definition.get('metadata', {}).get('name', 'Unknown Definition')
+            results.append({'success': True, 'message': f'📊 Found definition: {definition_name}'})
+        except Exception as e:
+            force_sign_out(server_host, rest_token)
+            return jsonify({'success': False, 'error': f'Failed to get definition: {str(e)}'})
+        
+        # Get all metrics for this definition (include metrics without followers)
+        try:
+            metrics_result = get_all_metrics_for_definition_rest(server_host, rest_token, definition_id, exclude_metrics_without_followers=False)
+            
+            if not metrics_result['success']:
+                force_sign_out(server_host, rest_token)
+                return jsonify({'success': False, 'error': f'Failed to get metrics: {metrics_result.get("error")}'})
+            
+            all_metrics = metrics_result.get('metrics', [])
+            results.append({'success': True, 'message': f'📈 Found {len(all_metrics)} metrics in this definition'})
+        except Exception as e:
+            force_sign_out(server_host, rest_token)
+            return jsonify({'success': False, 'error': f'Failed to get metrics: {str(e)}'})
+        
+        # Get all subscriptions to build follower count map (much faster than per-metric API calls)
+        print(f"[Follower Analysis] Fetching all subscriptions to build follower counts...")
+        results.append({'success': True, 'message': '👥 Fetching subscription data...'})
+        
+        try:
+            subscriptions_result = get_all_subscriptions_rest(server_host, rest_token)
+            if subscriptions_result['success']:
+                all_subscriptions = subscriptions_result.get('subscriptions', [])
+                print(f"[Follower Analysis] Retrieved {len(all_subscriptions)} total subscriptions")
+                
+                # Build a map of metric_id -> follower count
+                metric_follower_counts = {}
+                for sub in all_subscriptions:
+                    m_id = sub.get('metric_id')
+                    if m_id:
+                        metric_follower_counts[m_id] = metric_follower_counts.get(m_id, 0) + 1
+                
+                print(f"[Follower Analysis] Built follower count map for {len(metric_follower_counts)} metrics with followers")
+            else:
+                print(f"[Follower Analysis] WARNING: Could not fetch subscriptions: {subscriptions_result.get('error')}")
+                metric_follower_counts = {}
+        except Exception as e:
+            print(f"[Follower Analysis] WARNING: Exception fetching subscriptions: {str(e)}")
+            metric_follower_counts = {}
+        
+        # Check each metric for followers using the pre-built map
+        print(f"[Follower Analysis] Analyzing {len(all_metrics)} metrics...")
+        zero_follower_metrics = []
+        metrics_with_followers = []
+        
+        for i, metric in enumerate(all_metrics, 1):
+            if i % 100 == 0 or i == len(all_metrics):
+                print(f"[Follower Analysis] Processing metric {i}/{len(all_metrics)}...")
+            
+            metric_id = metric.get('id')
+            is_default = metric.get('is_default', False)
+            
+            # Build metric name
+            metric_name = definition_name
+            if is_default:
+                metric_name += " (Default)"
+            else:
+                # Check for filters to show scoping info
+                filters = metric.get('specification', {}).get('filters', [])
+                if filters:
+                    filter_descriptions = []
+                    for f in filters:
+                        field = f.get('field', 'Unknown')
+                        values = f.get('categorical_values', [])
+                        value_strs = []
+                        for v in values:
+                            if 'string_value' in v:
+                                value_strs.append(v['string_value'])
+                            elif 'bool_value' in v:
+                                value_strs.append(str(v['bool_value']))
+                        if value_strs:
+                            filter_descriptions.append(f"{field}: {', '.join(value_strs)}")
+                    if filter_descriptions:
+                        metric_name += f" ({'; '.join(filter_descriptions)})"
+                    else:
+                        metric_name += " (Scoped)"
+            
+            # Look up follower count from our pre-built map (no API call needed!)
+            follower_count = metric_follower_counts.get(metric_id, 0)
+            
+            if follower_count == 0:
+                zero_follower_metrics.append({
+                    'id': metric_id,
+                    'name': metric_name,
+                    'is_default': is_default,
+                    'follower_count': 0
+                })
+            else:
+                metrics_with_followers.append({
+                    'id': metric_id,
+                    'name': metric_name,
+                    'is_default': is_default,
+                    'follower_count': follower_count
+                })
+        
+        print(f"[Follower Analysis] COMPLETE: {len(zero_follower_metrics)} metrics with zero followers, {len(metrics_with_followers)} metrics with followers")
+        
+        # Sign out
+        force_sign_out(server_host, rest_token)
+        
+        # Build summary
+        total_metrics = len(all_metrics)
+        zero_count = len(zero_follower_metrics)
+        with_followers_count = len(metrics_with_followers)
+        
+        results.append({'success': True, 'message': f'✅ Analysis complete!'})
+        results.append({'success': True, 'message': f'📊 Total metrics: {total_metrics}'})
+        results.append({'success': True, 'message': f'🚫 Metrics with zero followers: {zero_count}'})
+        results.append({'success': True, 'message': f'👥 Metrics with followers: {with_followers_count}'})
+        
+        # Add details for zero follower metrics
+        if zero_follower_metrics:
+            results.append({'success': True, 'message': '---'})
+            results.append({'success': True, 'message': '🔍 Zero Follower Metrics:'})
+            for m in zero_follower_metrics:
+                default_badge = ' ⭐ DEFAULT' if m['is_default'] else ''
+                results.append({'success': True, 'message': f'  • {m["name"]}{default_badge}'})
+                results.append({'success': True, 'message': f'    ID: {m["id"]}'})
+        
+        summary = f"Found {zero_count} metric(s) with zero followers out of {total_metrics} total metrics"
+        
+        return jsonify({
+            'success': True,
+            'results': results,
+            'summary': summary,
+            'definition_name': definition_name,
+            'definition_id': definition_id,
+            'total_metrics': total_metrics,
+            'zero_follower_count': zero_count,
+            'zero_follower_metrics': zero_follower_metrics,
+            'metrics_with_followers': metrics_with_followers
+        })
+        
+    except Exception as e:
+        tb_str = traceback.format_exc()
+        print(f"ERROR in zero_follower_metrics: {tb_str}")
+        
+        return jsonify({
+            'success': False,
+            'error': f'Unexpected error: {str(e)}',
+            'traceback': tb_str
+        })
+
 
 if __name__ == '__main__':
     # Run the Flask development server
