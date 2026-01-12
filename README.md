@@ -1,6 +1,6 @@
 # Tableau Pulse Utilities
 
-A comprehensive web application suite for managing Tableau Pulse with eight powerful utilities, built with Python Flask and featuring a modern, responsive UI.
+A comprehensive web application suite for managing Tableau Pulse with nine powerful utilities, built with Python Flask and featuring a modern, responsive UI.
 
 ## 🚀 Available Utilities
 
@@ -56,7 +56,15 @@ Get comprehensive insights and analytics about Pulse metric usage across your si
 - **✅ Certification Insights**: Track how many definitions are certified
 - **Interactive Dashboard**: Visual cards and sortable tables for easy analysis
 
-### 8. 📑 Export Definitions
+### 8. 🔍 Zero Follower Metrics
+Find metrics within a definition that have no followers
+- **📊 Analyze by Definition**: Enter a Pulse definition ID to analyze all its metrics
+- **🚫 Identify Unused Metrics**: Find metrics with zero followers (both default and scoped)
+- **🗑️ Optional Deletion**: Automatically delete non-default metrics with zero followers
+- **📋 Detailed Reporting**: View metrics with zero followers and metrics with followers side-by-side
+- **⚠️ Safe Deletion**: Default metrics cannot be deleted and are automatically skipped
+
+### 9. 📑 Export Definitions
 Export all Pulse metric definitions to CSV for documentation or analysis
 - **📋 Basic Mode**: Export essential fields - Name, Measure, Time Dimension, Definitional Filters, Datasource Name
 - **📊 Verbose Mode**: Export all configuration details including extension options, comparisons, certification status, and more
@@ -139,7 +147,7 @@ hello-world-app/
 
 ### Getting Started
 1. Start the application and visit `http://localhost:3000`
-2. Choose one of the three available utilities from the home page
+2. Choose one of the nine available utilities from the home page
 3. Fill in the required connection and configuration details
 4. Monitor real-time progress and results
 
@@ -288,6 +296,36 @@ hello-world-app/
    - Track certification progress across your organization
    - Make data-driven decisions about which metrics to promote or retire
 
+### 🔍 Using Zero Follower Metrics
+1. **Server Connection**:
+   - Enter Tableau Server URL and site content URL
+   - Provide authentication credentials (username/password or PAT)
+
+2. **Definition Selection**:
+   - Enter the Pulse Definition ID to analyze
+   - The tool will retrieve all metrics within this definition
+
+3. **Deletion Options (Optional)**:
+   - Check the box to automatically delete metrics with zero followers
+   - ⚠️ **WARNING**: This will permanently delete all non-default metrics that have zero followers
+   - Default metrics cannot be deleted and will be automatically skipped
+
+4. **Execute**: Click "🔍 Find Zero Follower Metrics" and view the results
+
+   The tool will:
+   - List all metrics within the definition
+   - Identify which metrics have zero followers
+   - Separate default metrics from scoped metrics
+   - Show metrics with followers for comparison
+   - Optionally delete non-default metrics with zero followers
+   - Display deletion statistics (deleted, failed, skipped)
+
+   **Use Cases**:
+   - Clean up unused scoped metrics that were created but never followed
+   - Identify metrics that may need promotion or removal
+   - Understand metric adoption patterns within a definition
+   - Reduce clutter by removing metrics with no engagement
+
 ### 📑 Using Export Definitions
 1. **Server Connection**:
    - Enter Tableau Server URL and API version
@@ -326,6 +364,7 @@ hello-world-app/
 - `POST /check-certified-metrics` - Check certified metrics and remove unauthorized certifications
 - `POST /bulk-create-scoped-metrics` - Create multiple scoped metrics from a source metric
 - `POST /pulse-analytics` - Generate comprehensive analytics about Pulse usage
+- `POST /zero-follower-metrics` - Find and optionally delete metrics with zero followers
 - `POST /export-definitions` - Export all metric definitions to CSV
 
 ## Customization
@@ -371,7 +410,7 @@ hello-world-app/
 
 ## 🎯 What's Included
 
-This application suite includes eight powerful utilities for managing Tableau Pulse:
+This application suite includes nine powerful utilities for managing Tableau Pulse:
 
 ### Available Utilities:
 1. **Pulse Definition Copier** - Copy definitions between sites
@@ -381,7 +420,8 @@ This application suite includes eight powerful utilities for managing Tableau Pu
 5. **Check Certified Metrics** - View and manage metric certifications
 6. **Bulk Create Scoped Metrics** - Create multiple scoped metrics with dimension filters
 7. **Pulse Analytics** - Get comprehensive insights into metric usage and follower engagement
-8. **Export Definitions** - Export all metric definitions to CSV for documentation
+8. **Zero Follower Metrics** - Find and optionally delete metrics with no followers
+9. **Export Definitions** - Export all metric definitions to CSV for documentation
 
 ### Benefits of the Web Interface:
 - **🌐 No CLI Required**: Everything runs through the web browser
@@ -390,7 +430,7 @@ This application suite includes eight powerful utilities for managing Tableau Pu
 - **🔒 Security**: Credentials are handled securely without persistent storage
 - **🚀 Enhanced Functionality**: Same power as the original CLI scripts with improved usability
 - **📱 Accessibility**: Works on any device with a web browser
-- **🏠 Unified Interface**: All eight utilities in one convenient location
+- **🏠 Unified Interface**: All nine utilities in one convenient location
 
 ### Technical Features:
 - Modern Flask web framework
@@ -400,4 +440,4 @@ This application suite includes eight powerful utilities for managing Tableau Pu
 - Beautiful, responsive UI with animations
 - Support for both JSON and XML API authentication methods
 
-Transform your Tableau Pulse management workflow with this powerful web application suite! 🚀📊👥🔄⚙️✅📊📈📑
+Transform your Tableau Pulse management workflow with this powerful web application suite! 🚀📊👥🔄⚙️✅📊📈🔍📑
