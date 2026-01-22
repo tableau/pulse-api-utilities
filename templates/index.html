@@ -1409,6 +1409,18 @@
                     </div>
                 </div>
 
+                <!-- Analysis Options -->
+                <div class="form-section">
+                    <h3>⚙️ Analysis Options</h3>
+                    <div class="form-row">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="zero_include_follower_counts" name="include_follower_counts" value="true" checked>
+                            <span style="font-weight: 600;">Include follower counts</span>
+                        </label>
+                        <small>If unchecked, analysis will be faster by only checking if metrics have followers (not counting them). Follower counts are only used for display/reference.</small>
+                    </div>
+                </div>
+
                 <!-- Deletion Options -->
                 <div class="form-section">
                     <h3>🗑️ Deletion Options</h3>
@@ -2387,8 +2399,9 @@
             const formData = new FormData(event.target);
             const data = Object.fromEntries(formData.entries());
             
-            // Handle checkbox - if checked, set to true, otherwise false
+            // Handle checkboxes - if checked, set to true, otherwise false
             data.delete_metrics = document.getElementById('zero_delete_metrics').checked;
+            data.include_follower_counts = document.getElementById('zero_include_follower_counts').checked;
             
             // Clear previous results and show new progress
             const progressMessage = data.delete_metrics 
@@ -2532,16 +2545,23 @@
             
             // Show metrics with followers for comparison
             if (result.metrics_with_followers && result.metrics_with_followers.length > 0) {
+                // Check if follower counts were included in the analysis
+                const showFollowerCounts = result.include_follower_counts !== false;
+                const countsNote = !showFollowerCounts 
+                    ? '<p style="font-size: 0.85rem; color: #6b7280; margin-bottom: 10px;"><em>ℹ️ Note: Follower counts not included in analysis (faster mode enabled)</em></p>'
+                    : '';
+                
                 resultsHTML += `
                     <div class="result-item" style="margin-top: 20px;">
                         <h4>👥 Metrics with Followers (${result.metrics_with_followers.length})</h4>
+                        ${countsNote}
                         <div style="overflow-x: auto; margin-top: 10px;">
                             <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
                                 <thead>
                                     <tr style="background: #f3f4f6;">
                                         <th style="padding: 10px; text-align: left; border: 1px solid #e5e7eb;">Metric Name</th>
                                         <th style="padding: 10px; text-align: left; border: 1px solid #e5e7eb;">Default</th>
-                                        <th style="padding: 10px; text-align: left; border: 1px solid #e5e7eb;">Followers</th>
+                                        ${showFollowerCounts ? '<th style="padding: 10px; text-align: left; border: 1px solid #e5e7eb;">Followers</th>' : ''}
                                         <th style="padding: 10px; text-align: left; border: 1px solid #e5e7eb;">Metric ID</th>
                                     </tr>
                                 </thead>
@@ -2550,7 +2570,7 @@
                                         <tr style="background: ${i % 2 === 0 ? '#fff' : '#f9f9f9'};">
                                             <td style="padding: 10px; border: 1px solid #e5e7eb;">${m.name}</td>
                                             <td style="padding: 10px; border: 1px solid #e5e7eb;">${m.is_default ? '⭐ Yes' : 'No'}</td>
-                                            <td style="padding: 10px; border: 1px solid #e5e7eb; font-weight: bold; color: #1f5f99;">${m.follower_count}</td>
+                                            ${showFollowerCounts ? `<td style="padding: 10px; border: 1px solid #e5e7eb; font-weight: bold; color: #1f5f99;">${m.follower_count}</td>` : ''}
                                             <td style="padding: 10px; border: 1px solid #e5e7eb; font-family: monospace; font-size: 0.8rem;">${m.id}</td>
                                         </tr>
                                     `).join('')}

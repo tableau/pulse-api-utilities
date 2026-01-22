@@ -660,7 +660,31 @@ def get_all_metrics_for_definition_rest(server_url, auth_token, definition_id, e
                 return {'success': False, 'error': f"Failed to get metrics. Status: {response.status_code}", 'response': response.text}
         
         print(f"[Metrics Fetch] COMPLETE: Retrieved {len(all_metrics)} total metrics across {page_count} page(s)")
-        return {'success': True, 'metrics': all_metrics}
+        
+        # Deduplicate metrics by ID (in case API returns duplicates across pages)
+        seen_metric_ids = {}
+        deduplicated_metrics = []
+        duplicate_count = 0
+        
+        for metric in all_metrics:
+            metric_id = metric.get('id') or metric.get('metadata', {}).get('id')
+            if metric_id:
+                if metric_id not in seen_metric_ids:
+                    seen_metric_ids[metric_id] = True
+                    deduplicated_metrics.append(metric)
+                else:
+                    duplicate_count += 1
+            else:
+                # If metric has no ID, include it anyway (shouldn't happen, but be safe)
+                deduplicated_metrics.append(metric)
+        
+        if duplicate_count > 0:
+            print(f"[Metrics Fetch] WARNING: Found {duplicate_count} duplicate metric(s) - removed duplicates")
+            print(f"[Metrics Fetch] Final count: {len(deduplicated_metrics)} unique metrics (removed {duplicate_count} duplicates)")
+        else:
+            print(f"[Metrics Fetch] Final count: {len(deduplicated_metrics)} unique metrics")
+        
+        return {'success': True, 'metrics': deduplicated_metrics}
             
     except Exception as e:
         print(f"[Metrics Fetch] EXCEPTION: {str(e)}")
@@ -4132,6 +4156,7 @@ def zero_follower_metrics():
         auth_method = data.get('auth_method')
         definition_id = data.get('definition_id', '').strip()
         delete_metrics = data.get('delete_metrics', False)  # Checkbox value
+        include_follower_counts = data.get('include_follower_counts', True)  # Checkbox value, default True for backward compatibility
         
         # Validate required fields
         if not all([server_host, site_content_url is not None, auth_method, definition_id]):
@@ -4188,32 +4213,72 @@ def zero_follower_metrics():
             force_sign_out(server_host, rest_token)
             return jsonify({'success': False, 'error': f'Failed to get metrics: {str(e)}'})
         
-        # Get all subscriptions to build follower count map (much faster than per-metric API calls)
-        print(f"[Follower Analysis] Fetching all subscriptions to build follower counts...")
-        results.append({'success': True, 'message': '👥 Fetching subscription data...'})
+        # Get follower information (conditional based on include_follower_counts option)
+        metric_follower_counts = {}
+        metrics_with_followers_set = set()
+        use_metric_is_followed = False
         
-        try:
-            subscriptions_result = get_all_subscriptions_rest(server_host, rest_token)
-            if subscriptions_result['success']:
-                all_subscriptions = subscriptions_result.get('subscriptions', [])
-                print(f"[Follower Analysis] Retrieved {len(all_subscriptions)} total subscriptions")
-                
-                # Build a map of metric_id -> follower count
-                metric_follower_counts = {}
-                for sub in all_subscriptions:
-                    m_id = sub.get('metric_id')
-                    if m_id:
-                        metric_follower_counts[m_id] = metric_follower_counts.get(m_id, 0) + 1
-                
-                print(f"[Follower Analysis] Built follower count map for {len(metric_follower_counts)} metrics with followers")
-            else:
-                print(f"[Follower Analysis] WARNING: Could not fetch subscriptions: {subscriptions_result.get('error')}")
-                metric_follower_counts = {}
-        except Exception as e:
-            print(f"[Follower Analysis] WARNING: Exception fetching subscriptions: {str(e)}")
-            metric_follower_counts = {}
+        # Check if metrics have is_followed field (check first metric only)
+        if all_metrics:
+            sample_metric = all_metrics[0]
+            if 'is_followed' in sample_metric:
+                use_metric_is_followed = True
+                print(f"[Follower Analysis] Metrics have 'is_followed' field - can use directly!")
         
-        # Check each metric for followers using the pre-built map
+        if include_follower_counts:
+            # Full approach: Fetch all subscriptions and build count map (needed for counts)
+            print(f"[Follower Analysis] Fetching all subscriptions to build follower counts...")
+            results.append({'success': True, 'message': '👥 Fetching subscription data (with counts)...'})
+            
+            try:
+                subscriptions_result = get_all_subscriptions_rest(server_host, rest_token)
+                if subscriptions_result['success']:
+                    all_subscriptions = subscriptions_result.get('subscriptions', [])
+                    print(f"[Follower Analysis] Retrieved {len(all_subscriptions)} total subscriptions")
+                    
+                    # Build a map of metric_id -> follower count
+                    for sub in all_subscriptions:
+                        m_id = sub.get('metric_id')
+                        if m_id:
+                            metric_follower_counts[m_id] = metric_follower_counts.get(m_id, 0) + 1
+                            metrics_with_followers_set.add(m_id)
+                    
+                    print(f"[Follower Analysis] Built follower count map for {len(metric_follower_counts)} metrics with followers")
+                else:
+                    print(f"[Follower Analysis] WARNING: Could not fetch subscriptions: {subscriptions_result.get('error')}")
+                    metric_follower_counts = {}
+            except Exception as e:
+                print(f"[Follower Analysis] WARNING: Exception fetching subscriptions: {str(e)}")
+                metric_follower_counts = {}
+        elif use_metric_is_followed:
+            # Fastest approach: Use is_followed field directly from metrics - NO subscription fetch needed!
+            print(f"[Follower Analysis] Using 'is_followed' field from metrics - skipping subscription fetch (fastest mode)")
+            results.append({'success': True, 'message': '⚡ Using is_followed field from metrics (no subscription fetch needed - fastest!)'})
+        else:
+            # Fallback: Fetch subscriptions to build a set of metric_ids with followers (boolean check only)
+            # Only needed if metrics don't have is_followed field
+            print(f"[Follower Analysis] Metrics don't have 'is_followed' field - fetching subscriptions for boolean check...")
+            results.append({'success': True, 'message': '👥 Fetching subscription data (boolean check only - faster)...'})
+            
+            try:
+                subscriptions_result = get_all_subscriptions_rest(server_host, rest_token)
+                if subscriptions_result['success']:
+                    all_subscriptions = subscriptions_result.get('subscriptions', [])
+                    print(f"[Follower Analysis] Retrieved {len(all_subscriptions)} total subscriptions")
+                    
+                    # Build a set of metric_ids that have followers (boolean check only, no counting)
+                    for sub in all_subscriptions:
+                        m_id = sub.get('metric_id')
+                        if m_id:
+                            metrics_with_followers_set.add(m_id)
+                    
+                    print(f"[Follower Analysis] Built set of {len(metrics_with_followers_set)} metrics with followers (no counts)")
+                else:
+                    print(f"[Follower Analysis] WARNING: Could not fetch subscriptions: {subscriptions_result.get('error')}")
+            except Exception as e:
+                print(f"[Follower Analysis] WARNING: Exception fetching subscriptions: {str(e)}")
+        
+        # Check each metric for followers
         print(f"[Follower Analysis] Analyzing {len(all_metrics)} metrics...")
         zero_follower_metrics = []
         metrics_with_followers = []
@@ -4232,10 +4297,24 @@ def zero_follower_metrics():
             else:
                 metric_name += " (Scoped)"
             
-            # Look up follower count from our pre-built map (no API call needed!)
-            follower_count = metric_follower_counts.get(metric_id, 0)
+            # Check if metric has followers (boolean check, not count)
+            has_followers = False
             
-            if follower_count == 0:
+            # Priority 1: Use is_followed field from metric object (fastest - no API calls needed)
+            if use_metric_is_followed and 'is_followed' in metric:
+                has_followers = metric.get('is_followed', False)
+            # Priority 2: Use subscription map/set (if we fetched subscriptions)
+            elif include_follower_counts:
+                # Use count map if we built it
+                has_followers = metric_id in metric_follower_counts
+            elif metrics_with_followers_set:
+                # Use set if we built it (boolean check only)
+                has_followers = metric_id in metrics_with_followers_set
+            else:
+                # Fallback: if somehow we have neither, default to False (zero followers)
+                has_followers = False
+            
+            if not has_followers:
                 zero_follower_metrics.append({
                     'id': metric_id,
                     'name': metric_name,
@@ -4243,6 +4322,13 @@ def zero_follower_metrics():
                     'follower_count': 0
                 })
             else:
+                # Get actual count for display purposes (if include_follower_counts is enabled)
+                if include_follower_counts:
+                    follower_count = metric_follower_counts.get(metric_id, 1)
+                else:
+                    # If counts not requested, just use 1 as placeholder (we know it has followers)
+                    follower_count = 1
+                
                 metrics_with_followers.append({
                     'id': metric_id,
                     'name': metric_name,
@@ -4325,6 +4411,7 @@ def zero_follower_metrics():
             'zero_follower_count': zero_count,
             'zero_follower_metrics': zero_follower_metrics,
             'metrics_with_followers': metrics_with_followers,
+            'include_follower_counts': include_follower_counts,  # Flag to indicate if counts were included
             'deleted_count': deleted_count if delete_metrics else 0,
             'failed_deletions': failed_deletions if delete_metrics else 0,
             'skipped_default': skipped_default if delete_metrics else 0
