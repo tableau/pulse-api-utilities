@@ -1804,54 +1804,121 @@ def copy_definitions():
 def manage_followers():
     """Handle bulk manage followers form submission"""
     try:
-        data = request.get_json()
         results = []
         
-        # Extract form data
-        server_host = data.get('server_host', '').strip()
-        site_content_url = data.get('site_content_url', '').strip()
-        auth_method = data.get('auth_method')
-        action = data.get('action')  # 'add' or 'remove'
-        metric_ids = data.get('metric_ids', '').strip()
-        user_emails_raw = data.get('user_emails', '').strip()
+        # Check if this is a CSV file upload
+        if 'csv_file' in request.files:
+            # CSV Upload Mode
+            csv_file = request.files['csv_file']
+            
+            if csv_file.filename == '':
+                return jsonify({'success': False, 'error': 'No CSV file selected'}), 400
+            
+            # Extract form data from multipart
+            server_host = request.form.get('server_host', '').strip().rstrip('/')
+            site_content_url = request.form.get('site_content_url', '').strip()
+            auth_method = request.form.get('auth_method')
+            action = request.form.get('action')  # 'add' or 'remove'
+            metric_ids = request.form.get('metric_ids', '').strip()
+            
+            # Authentication data
+            username = request.form.get('username', '').strip()
+            password = request.form.get('password', '').strip()
+            pat_name = request.form.get('pat_name', '').strip()
+            pat_token = request.form.get('pat_token', '').strip()
+            
+            # Validate required fields
+            if not all([server_host, site_content_url, auth_method, action, metric_ids]):
+                return jsonify({
+                    'success': False,
+                    'error': 'All fields are required (server host, site content URL, auth method, action, and metric IDs)'
+                }), 400
+            
+            if action not in ['add', 'remove']:
+                return jsonify({
+                    'success': False,
+                    'error': 'Invalid action. Must be "add" or "remove"'
+                }), 400
+            
+            # Parse CSV - single column with email addresses
+            csv_content = csv_file.read().decode('utf-8')
+            csv_reader = csv.reader(io.StringIO(csv_content))
+            rows = list(csv_reader)
+            
+            if not rows:
+                return jsonify({'success': False, 'error': 'CSV file is empty'}), 400
+            
+            # Check if first row looks like a header (skip it)
+            first_row = rows[0]
+            if len(first_row) > 0 and any(keyword in first_row[0].lower() for keyword in ['email', 'user', 'address', 'mail']):
+                rows = rows[1:]  # Skip header
+            
+            # Extract email addresses from first column
+            user_emails = []
+            for row_num, row in enumerate(rows, start=1):
+                if len(row) > 0:
+                    email = row[0].strip()
+                    if email:  # Only add non-empty emails
+                        user_emails.append(email)
+            
+            if not user_emails:
+                return jsonify({'success': False, 'error': 'No email addresses found in CSV file'}), 400
+            
+            results.append({'success': True, 'message': f'📄 Parsed {len(user_emails)} email addresses from CSV'})
+            
+        else:
+            # Manual Entry Mode (JSON)
+            data = request.get_json()
+            
+            # Extract form data
+            server_host = data.get('server_host', '').strip().rstrip('/')
+            site_content_url = data.get('site_content_url', '').strip()
+            auth_method = data.get('auth_method')
+            action = data.get('action')  # 'add' or 'remove'
+            metric_ids = data.get('metric_ids', '').strip()
+            user_emails_raw = data.get('user_emails', '').strip()
+            
+            # Authentication data
+            username = data.get('username', '').strip()
+            password = data.get('password', '').strip()
+            pat_name = data.get('pat_name', '').strip()
+            pat_token = data.get('pat_token', '').strip()
+            
+            # Validate required fields
+            if not all([server_host, site_content_url, auth_method, action, metric_ids, user_emails_raw]):
+                return jsonify({
+                    'success': False,
+                    'error': 'All fields are required'
+                }), 400
+            
+            if action not in ['add', 'remove']:
+                return jsonify({
+                    'success': False,
+                    'error': 'Invalid action. Must be "add" or "remove"'
+                }), 400
+            
+            # Parse user emails from textarea
+            user_emails = [u.strip() for u in user_emails_raw.replace('\n', ',').split(',') if u.strip()]
         
-        # Validate required fields
-        if not all([server_host, site_content_url, auth_method, action, metric_ids, user_emails_raw]):
-            return jsonify({
-                'success': False,
-                'error': 'All fields are required'
-            })
-        
-        if action not in ['add', 'remove']:
-            return jsonify({
-                'success': False,
-                'error': 'Invalid action. Must be "add" or "remove"'
-            })
-        
-        # Parse metric IDs and user emails
+        # Parse metric IDs
         metrics = [m.strip() for m in metric_ids.split(",") if m.strip()]
-        user_emails = [u.strip() for u in user_emails_raw.replace('\n', ',').split(',') if u.strip()]
         
         # Sign in to server
         try:
             if auth_method == 'password':
-                username = data.get('username', '').strip()
-                password = data.get('password', '').strip()
                 if not username or not password:
-                    return jsonify({'success': False, 'error': 'Username and password are required'})
+                    return jsonify({'success': False, 'error': 'Username and password are required'}), 400
                 rest_token, site_id = sign_in_rest_xml(server_host, site_content_url, "password", 
                                                      username=username, password=password)
             elif auth_method == 'pat':
-                pat_name = data.get('pat_name', '').strip()
-                pat_token = data.get('pat_token', '').strip()
                 if not pat_name or not pat_token:
-                    return jsonify({'success': False, 'error': 'PAT name and token are required'})
+                    return jsonify({'success': False, 'error': 'PAT name and token are required'}), 400
                 rest_token, site_id = sign_in_rest_xml(server_host, site_content_url, "pat", 
                                                      pat_name=pat_name, pat_token=pat_token)
             else:
-                return jsonify({'success': False, 'error': 'Invalid authentication method'})
+                return jsonify({'success': False, 'error': 'Invalid authentication method'}), 400
         except Exception as e:
-            return jsonify({'success': False, 'error': f'Authentication failed: {str(e)}'})
+            return jsonify({'success': False, 'error': f'Authentication failed: {str(e)}'}), 400
         
         results.append({'success': True, 'message': '✅ Signed in successfully'})
         
