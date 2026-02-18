@@ -1,6 +1,6 @@
 # Tableau Pulse Utilities
 
-A comprehensive web application suite for managing Tableau Pulse with nine powerful utilities, built with Python Flask and featuring a modern, responsive UI.
+A comprehensive web application suite for managing Tableau Pulse with ten powerful utilities, built with Python Flask and featuring a modern, responsive UI.
 
 ## 🚀 Available Utilities
 
@@ -64,7 +64,14 @@ Find metrics within a definition that have no followers
 - **📋 Detailed Reporting**: View metrics with zero followers and metrics with followers side-by-side
 - **⚠️ Safe Deletion**: Default metrics cannot be deleted and are automatically skipped
 
-### 9. 📑 Export Definitions
+### 9. ⭐ Favorite Metrics
+Get a list of metrics marked as favorites by the authenticated user
+- Calls the same `followedMetricsGroups` endpoint used by the Tableau Pulse UI
+- Filters followed metrics to only those tagged as favorites
+- Displays definition name, datasource, metric type, and applied filters
+- Exports results to CSV
+
+### 10. 📑 Export Definitions
 Export all Pulse metric definitions to CSV for documentation or analysis
 - **📋 Basic Mode**: Export essential fields - Name, Measure, Time Dimension, Definitional Filters, Datasource Name
 - **📊 Verbose Mode**: Export all configuration details including extension options, comparisons, certification status, and more
@@ -326,6 +333,25 @@ hello-world-app/
    - Understand metric adoption patterns within a definition
    - Reduce clutter by removing metrics with no engagement
 
+### ⭐ Using Favorite Metrics
+1. **Server Connection**:
+   - Enter Tableau Server URL and site content URL
+   - Provide authentication credentials (username/password or PAT)
+
+2. **Execute**: Click "⭐ Get My Favorite Metrics"
+
+   The tool will:
+   - Authenticate and retrieve the current user's followed metrics via the `followedMetricsGroups` API
+   - Filter for metrics where the `tags` array contains `"favorite"`
+   - Look up the definition name for each favorite metric
+   - Display results in a table with Definition Name, Datasource, Type, Filters, Metric ID, and Definition ID
+   - Provide a CSV download of the full results
+
+   **Use Cases**:
+   - Audit which metrics a specific user has favorited
+   - Export a user's favorites list for documentation or migration
+   - Verify favorites are set correctly after onboarding
+
 ### 📑 Using Export Definitions
 1. **Server Connection**:
    - Enter Tableau Server URL and API version
@@ -366,6 +392,7 @@ hello-world-app/
 - `POST /pulse-analytics` - Generate comprehensive analytics about Pulse usage
 - `POST /zero-follower-metrics` - Find and optionally delete metrics with zero followers
 - `POST /export-definitions` - Export all metric definitions to CSV
+- `POST /favorite-metrics` - Get the authenticated user's favorited metrics
 
 ## Customization
 
@@ -410,11 +437,11 @@ hello-world-app/
 
 ## 🎯 What's Included
 
-This application suite includes nine powerful utilities for managing Tableau Pulse:
+This application suite includes ten powerful utilities for managing Tableau Pulse:
 
 ### Available Utilities:
 1. **Pulse Definition Copier** - Copy definitions between sites
-2. **Bulk Manage Followers** - Add/remove followers from metrics  
+2. **Bulk Manage Followers** - Add/remove followers from metrics
 3. **Swap Datasources** - Copy definitions with new datasources
 4. **Update User Preferences** - Update Pulse user preferences
 5. **Check Certified Metrics** - View and manage metric certifications
@@ -422,6 +449,7 @@ This application suite includes nine powerful utilities for managing Tableau Pul
 7. **Pulse Analytics** - Get comprehensive insights into metric usage and follower engagement
 8. **Zero Follower Metrics** - Find and optionally delete metrics with no followers
 9. **Export Definitions** - Export all metric definitions to CSV for documentation
+10. **Favorite Metrics** - Get a list of metrics favorited by the authenticated user
 
 ### Benefits of the Web Interface:
 - **🌐 No CLI Required**: Everything runs through the web browser
@@ -430,7 +458,7 @@ This application suite includes nine powerful utilities for managing Tableau Pul
 - **🔒 Security**: Credentials are handled securely without persistent storage
 - **🚀 Enhanced Functionality**: Same power as the original CLI scripts with improved usability
 - **📱 Accessibility**: Works on any device with a web browser
-- **🏠 Unified Interface**: All nine utilities in one convenient location
+- **🏠 Unified Interface**: All ten utilities in one convenient location
 
 ### Technical Features:
 - Modern Flask web framework
@@ -440,4 +468,4 @@ This application suite includes nine powerful utilities for managing Tableau Pul
 - Beautiful, responsive UI with animations
 - Support for both JSON and XML API authentication methods
 
-Transform your Tableau Pulse management workflow with this powerful web application suite! 🚀📊👥🔄⚙️✅📊📈🔍📑
+Transform your Tableau Pulse management workflow with this powerful web application suite! 🚀📊👥🔄⚙️✅📊📈🔍📑⭐
