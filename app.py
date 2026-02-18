@@ -661,30 +661,26 @@ def get_all_metrics_for_definition_rest(server_url, auth_token, definition_id, e
         
         print(f"[Metrics Fetch] COMPLETE: Retrieved {len(all_metrics)} total metrics across {page_count} page(s)")
         
+        # SKIP DEDUPLICATION FOR TESTING (branch will be thrown away)
         # Deduplicate metrics by ID (in case API returns duplicates across pages)
-        seen_metric_ids = {}
-        deduplicated_metrics = []
-        duplicate_count = 0
+        # seen_metric_ids = {}
+        # deduplicated_metrics = []
+        # duplicate_count = 0
+        # for metric in all_metrics:
+        #     metric_id = metric.get('id') or metric.get('metadata', {}).get('id')
+        #     if metric_id:
+        #         if metric_id not in seen_metric_ids:
+        #             seen_metric_ids[metric_id] = True
+        #             deduplicated_metrics.append(metric)
+        #         else:
+        #             duplicate_count += 1
+        #     else:
+        #         deduplicated_metrics.append(metric)
+        # if duplicate_count > 0:
+        #     print(f"[Metrics Fetch] WARNING: Found {duplicate_count} duplicate metric(s) - removed duplicates")
+        # return {'success': True, 'metrics': deduplicated_metrics}
         
-        for metric in all_metrics:
-            metric_id = metric.get('id') or metric.get('metadata', {}).get('id')
-            if metric_id:
-                if metric_id not in seen_metric_ids:
-                    seen_metric_ids[metric_id] = True
-                    deduplicated_metrics.append(metric)
-                else:
-                    duplicate_count += 1
-            else:
-                # If metric has no ID, include it anyway (shouldn't happen, but be safe)
-                deduplicated_metrics.append(metric)
-        
-        if duplicate_count > 0:
-            print(f"[Metrics Fetch] WARNING: Found {duplicate_count} duplicate metric(s) - removed duplicates")
-            print(f"[Metrics Fetch] Final count: {len(deduplicated_metrics)} unique metrics (removed {duplicate_count} duplicates)")
-        else:
-            print(f"[Metrics Fetch] Final count: {len(deduplicated_metrics)} unique metrics")
-        
-        return {'success': True, 'metrics': deduplicated_metrics}
+        return {'success': True, 'metrics': all_metrics}
             
     except Exception as e:
         print(f"[Metrics Fetch] EXCEPTION: {str(e)}")
@@ -4210,6 +4206,127 @@ def tcm_activity_logs():
             'error_type': type(e).__name__
         })
 
+@app.route('/remove-all-followers', methods=['POST'])
+def remove_all_followers():
+    """Remove all followers from all non-default (scoped) metrics for a given definition ID"""
+    try:
+        data = request.get_json()
+        results = []
+        
+        # Extract form data
+        server_host = data.get('server_host', '').strip().rstrip('/')
+        site_content_url = data.get('site_content_url', '').strip()
+        auth_method = data.get('auth_method')
+        definition_id = data.get('definition_id', '').strip()
+        
+        # Validate required fields
+        if not all([server_host, site_content_url is not None, auth_method, definition_id]):
+            return jsonify({
+                'success': False,
+                'error': 'All fields are required (server host, site content URL, auth method, and definition ID)'
+            })
+        
+        results.append({'success': True, 'message': '🚀 Starting remove-all-followers...'})
+        
+        # Sign in to server
+        try:
+            if auth_method == 'password':
+                username = data.get('username', '').strip()
+                password = data.get('password', '').strip()
+                if not username or not password:
+                    return jsonify({'success': False, 'error': 'Username and password are required'})
+                rest_token, site_id = sign_in_rest_xml(server_host, site_content_url, "password",
+                                                     username=username, password=password)
+            elif auth_method == 'pat':
+                pat_name = data.get('pat_name', '').strip()
+                pat_token = data.get('pat_token', '').strip()
+                if not pat_name or not pat_token:
+                    return jsonify({'success': False, 'error': 'PAT name and token are required'})
+                rest_token, site_id = sign_in_rest_xml(server_host, site_content_url, "pat",
+                                                     pat_name=pat_name, pat_token=pat_token)
+            else:
+                return jsonify({'success': False, 'error': 'Invalid authentication method'})
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Authentication failed: {str(e)}'})
+        
+        results.append({'success': True, 'message': '✅ Signed in successfully'})
+        
+        # Get the definition details to get its name
+        try:
+            definition = get_pulse_definition(server_host, definition_id, rest_token)
+            definition_name = definition.get('metadata', {}).get('name', 'Unknown Definition')
+            results.append({'success': True, 'message': f'📊 Found definition: {definition_name}'})
+        except Exception as e:
+            force_sign_out(server_host, rest_token)
+            return jsonify({'success': False, 'error': f'Failed to get definition: {str(e)}'})
+        
+        # Get all metrics for this definition (include metrics without followers)
+        try:
+            metrics_result = get_all_metrics_for_definition_rest(server_host, rest_token, definition_id, exclude_metrics_without_followers=False)
+            if not metrics_result['success']:
+                force_sign_out(server_host, rest_token)
+                return jsonify({'success': False, 'error': f'Failed to get metrics: {metrics_result.get("error")}'})
+            all_metrics = metrics_result.get('metrics', [])
+            results.append({'success': True, 'message': f'📈 Found {len(all_metrics)} metrics in this definition'})
+        except Exception as e:
+            force_sign_out(server_host, rest_token)
+            return jsonify({'success': False, 'error': f'Failed to get metrics: {str(e)}'})
+        
+        # Process only non-default (scoped) metrics: remove all followers from each
+        metrics_processed = 0
+        total_followers_removed = 0
+        failed_count = 0
+        
+        for i, metric in enumerate(all_metrics, 1):
+            metric_id = metric.get('id') or metric.get('metadata', {}).get('id')
+            is_default = metric.get('is_default', False)
+            
+            if is_default:
+                results.append({'success': True, 'message': f'⏭️ Skipping default metric {metric_id}'})
+                continue
+            
+            try:
+                follower_ids = get_metric_followers(server_host, rest_token, metric_id)
+                if not follower_ids:
+                    results.append({'success': True, 'message': f'ℹ️ Metric {metric_id} has no followers'})
+                    continue
+                
+                result = remove_followers(server_host, rest_token, metric_id, follower_ids)
+                results.append(result)
+                if result.get('success'):
+                    metrics_processed += 1
+                    # Parse "Removed N followers" from message if needed; else count from len(follower_ids)
+                    total_followers_removed += len(follower_ids)
+                else:
+                    failed_count += 1
+            except Exception as e:
+                results.append({'success': False, 'message': f'❌ Failed to process metric {metric_id}: {str(e)}'})
+                failed_count += 1
+        
+        force_sign_out(server_host, rest_token)
+        
+        summary = f"Removed all followers from {metrics_processed} non-default metric(s) ({total_followers_removed} total followers removed)"
+        if failed_count > 0:
+            summary += f"; {failed_count} metric(s) failed"
+        
+        return jsonify({
+            'success': True,
+            'results': results,
+            'summary': summary,
+            'definition_name': definition_name,
+            'definition_id': definition_id,
+            'metrics_processed': metrics_processed,
+            'total_followers_removed': total_followers_removed,
+            'failed_count': failed_count
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Unexpected error: {str(e)}'
+        })
+
+
 @app.route('/zero-follower-metrics', methods=['POST'])
 def zero_follower_metrics():
     """Find metrics within a definition that have zero followers"""
@@ -4488,6 +4605,187 @@ def zero_follower_metrics():
         tb_str = traceback.format_exc()
         print(f"ERROR in zero_follower_metrics: {tb_str}")
         
+        return jsonify({
+            'success': False,
+            'error': f'Unexpected error: {str(e)}',
+            'traceback': tb_str
+        })
+
+
+# ------------------------------
+# Favorite Metrics
+# ------------------------------
+
+@app.route('/favorite-metrics', methods=['POST'])
+def favorite_metrics():
+    """Get metrics marked as favorites by the authenticated user"""
+    try:
+        data = request.get_json()
+        results = []
+
+        server_host = data.get('server_host', '').strip().rstrip('/')
+        site_content_url = data.get('site_content_url', '').strip()
+        auth_method = data.get('auth_method')
+
+        if not all([server_host, auth_method]):
+            return jsonify({'success': False, 'error': 'Server host and authentication method are required'})
+
+        results.append({'success': True, 'message': '🚀 Starting favorite metrics lookup...'})
+
+        # Sign in using authenticate_tableau_rest which also returns user_id
+        try:
+            if auth_method == 'password':
+                username = data.get('username', '').strip()
+                password = data.get('password', '').strip()
+                if not username or not password:
+                    return jsonify({'success': False, 'error': 'Username and password are required'})
+                auth_result = authenticate_tableau_rest(
+                    server_host, API_VERSION, site_content_url,
+                    'password', username=username, password=password
+                )
+            elif auth_method == 'pat':
+                pat_name = data.get('pat_name', '').strip()
+                pat_token = data.get('pat_token', '').strip()
+                if not pat_name or not pat_token:
+                    return jsonify({'success': False, 'error': 'PAT name and token are required'})
+                auth_result = authenticate_tableau_rest(
+                    server_host, API_VERSION, site_content_url,
+                    'pat', pat_name=pat_name, pat_token=pat_token
+                )
+            else:
+                return jsonify({'success': False, 'error': 'Invalid authentication method'})
+
+            if not auth_result['success']:
+                return jsonify({'success': False, 'error': f"Authentication failed: {auth_result.get('error')}"})
+
+            auth_token = auth_result['auth_token']
+            user_id = auth_result['user_id']
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Authentication failed: {str(e)}'})
+
+        results.append({'success': True, 'message': f'✅ Signed in successfully'})
+
+        # Fetch the current user's followed metrics using the same endpoint the Tableau UI uses
+        results.append({'success': True, 'message': '📋 Fetching followed metrics...'})
+
+        headers = {'X-Tableau-Auth': auth_token, 'Accept': 'application/json'}
+
+        try:
+            url = f"{server_host}/api/-/pulse/metrics:followedMetricsGroups?group_by=GROUP_BY_DATASOURCE_LABEL&sort_order=SORT_ORDER_ASCENDING"
+            response = requests.get(url, headers=headers, verify=True)
+
+            if response.status_code != 200:
+                force_sign_out(server_host, auth_token)
+                return jsonify({'success': False, 'error': f"Failed to get followed metrics. Status: {response.status_code}, Response: {response.text}"})
+
+            response_data = response.json()
+            print(f"[Favorite Metrics] followedMetricsGroups response keys: {list(response_data.keys())}")
+        except Exception as e:
+            force_sign_out(server_host, auth_token)
+            return jsonify({'success': False, 'error': f'Failed to get followed metrics: {str(e)}'})
+
+        # Extract all metrics from the grouped response
+        all_followed_metrics = []
+        groups = (
+            response_data.get('metric_groups') or
+            response_data.get('groups') or
+            response_data.get('metricGroups') or
+            []
+        )
+
+        print(f"[Favorite Metrics] Number of groups: {len(groups)}")
+
+        for group in groups:
+            group_label = group.get('group_metadata', {}).get('group_label', '')
+            metrics_in_group = group.get('metrics') or group.get('metric') or []
+            for metric in metrics_in_group:
+                metric['_group_label'] = group_label  # carry group label forward
+            all_followed_metrics.extend(metrics_in_group)
+
+        results.append({'success': True, 'message': f'📋 Found {len(all_followed_metrics)} followed metric(s) across {len(groups)} group(s)'})
+
+        # Filter for favorites: tags is an array of objects; check tag.value == 'favorite'
+        favorites = [
+            m for m in all_followed_metrics
+            if any(t.get('value') == 'favorite' for t in m.get('tags', []))
+        ]
+        results.append({'success': True, 'message': f'⭐ Found {len(favorites)} favorite metric(s)'})
+
+        if not favorites:
+            force_sign_out(server_host, auth_token)
+            return jsonify({
+                'success': True,
+                'results': results,
+                'summary': 'No favorite metrics found for this user',
+                'favorite_metrics': [],
+                'total_favorites': 0
+            })
+
+        # Enrich each favorite with definition details (definition name via cache)
+        results.append({'success': True, 'message': '📊 Fetching definition details...'})
+
+        definition_cache = {}
+        favorite_metrics_list = []
+
+        for metric in favorites:
+            metric_id = metric.get('id') or metric.get('metric_id', '')
+            definition_id = metric.get('definition_id', '')
+            is_default = metric.get('is_default', False)
+
+            # Look up definition name (cached)
+            if definition_id and definition_id not in definition_cache:
+                try:
+                    def_response = requests.get(
+                        f"{server_host}/api/-/pulse/definitions/{definition_id}",
+                        headers=headers, verify=True
+                    )
+                    if def_response.status_code == 200:
+                        def_data = def_response.json().get('definition', {})
+                        definition_cache[definition_id] = def_data.get('metadata', {}).get('name', 'Unknown Definition')
+                    else:
+                        definition_cache[definition_id] = 'Unknown Definition'
+                except Exception:
+                    definition_cache[definition_id] = 'Unknown Definition'
+
+            definition_name = definition_cache.get(definition_id, '')
+
+            # Build a human-readable filter string for scoped metrics
+            filters_str = ''
+            if not is_default:
+                filters = metric.get('specification', {}).get('filters', [])
+                if filters:
+                    filter_parts = []
+                    for f in filters:
+                        field = f.get('field', '')
+                        values = f.get('values', [])
+                        if field and values:
+                            filter_parts.append(f"{field}: {', '.join(str(v) for v in values)}")
+                    filters_str = ' | '.join(filter_parts)
+
+            favorite_metrics_list.append({
+                'metric_id': metric_id,
+                'definition_id': definition_id,
+                'definition_name': definition_name,
+                'datasource_label': metric.get('_group_label', ''),
+                'metric_type': 'Default' if is_default else 'Scoped',
+                'filters': filters_str,
+            })
+
+        force_sign_out(server_host, auth_token)
+
+        results.append({'success': True, 'message': f'✅ Retrieved details for {len(favorite_metrics_list)} favorite metric(s)'})
+
+        return jsonify({
+            'success': True,
+            'results': results,
+            'summary': f"Found {len(favorite_metrics_list)} favorite metric(s) for the authenticated user",
+            'favorite_metrics': favorite_metrics_list,
+            'total_favorites': len(favorite_metrics_list)
+        })
+
+    except Exception as e:
+        tb_str = traceback.format_exc()
+        print(f"ERROR in favorite_metrics: {tb_str}")
         return jsonify({
             'success': False,
             'error': f'Unexpected error: {str(e)}',
