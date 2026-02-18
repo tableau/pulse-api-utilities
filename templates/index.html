@@ -506,7 +506,9 @@
             <button class="tab-button" onclick="showTab('analytics')">📈 Analytics</button>
             <button class="tab-button" onclick="showTab('tcm-logs')">📋 TCM Logs</button>
             <button class="tab-button" onclick="showTab('zero-followers')">🔍 Zero Followers</button>
+            <button class="tab-button" onclick="showTab('remove-all-followers')">🧹 Remove All Followers</button>
             <button class="tab-button" onclick="showTab('export-definitions')">📑 Export Definitions</button>
+            <button class="tab-button" onclick="showTab('favorite-metrics')">⭐ Favorite Metrics</button>
         </div>
 
         <!-- Home Tab - Utility Selector -->
@@ -624,6 +626,18 @@
                         <button class="utility-button">Get Started</button>
                     </div>
 
+                    <div class="utility-card" onclick="showTab('remove-all-followers')">
+                        <div class="utility-icon">🧹</div>
+                        <h3>Remove All Followers</h3>
+                        <p>Remove all followers from all non-default (scoped) metrics for a definition</p>
+                        <div class="utility-features">
+                            <span>📊 By definition ID</span>
+                            <span>⏭️ Default metric unchanged</span>
+                            <span>🧹 Scoped metrics cleared</span>
+                        </div>
+                        <button class="utility-button">Get Started</button>
+                    </div>
+
                     <div class="utility-card" onclick="showTab('export-definitions')">
                         <div class="utility-icon">📑</div>
                         <h3>Export Definitions</h3>
@@ -632,6 +646,18 @@
                             <span>📊 Basic or verbose export</span>
                             <span>📋 One row per definition</span>
                             <span>📥 Download as CSV</span>
+                        </div>
+                        <button class="utility-button">Get Started</button>
+                    </div>
+
+                    <div class="utility-card" onclick="showTab('favorite-metrics')">
+                        <div class="utility-icon">⭐</div>
+                        <h3>Favorite Metrics</h3>
+                        <p>Get a list of metrics marked as favorites by the authenticated user</p>
+                        <div class="utility-features">
+                            <span>⭐ Your favorited metrics</span>
+                            <span>📊 Definition details included</span>
+                            <span>📥 Export to CSV</span>
                         </div>
                         <button class="utility-button">Get Started</button>
                     </div>
@@ -1476,6 +1502,65 @@
             </form>
         </div>
 
+        <!-- Remove All Followers Tab -->
+        <div id="remove-all-followers" class="tab-content">
+            <div class="form-header">
+                <h2>🧹 Remove All Followers</h2>
+                <p>Remove all followers from all non-default (scoped) metrics for a given definition. The default metric is left unchanged.</p>
+                <button type="button" class="button secondary back-button" onclick="showTab('home')">← Back to Home</button>
+            </div>
+            
+            <form id="removeAllFollowersForm" onsubmit="submitRemoveAllFollowers(event)">
+                <!-- Site Connection Section -->
+                <div class="form-section">
+                    <h3>🔗 Site Connection</h3>
+                    <div class="form-row">
+                        <input type="text" id="raf_host" name="server_host" placeholder="Tableau Server URL (e.g., https://your-server.com)" required>
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="raf_site" name="site_content_url" placeholder="Site Content URL (blank for Default)">
+                    </div>
+                    <div class="form-row">
+                        <select id="raf_auth_method" name="auth_method" onchange="toggleAuthFields('raf')" required>
+                            <option value="">Select Authentication Method</option>
+                            <option value="password">Username/Password</option>
+                            <option value="pat">Personal Access Token</option>
+                        </select>
+                    </div>
+                    <div id="raf_user_auth" class="auth-fields" style="display: none;">
+                        <div class="form-row">
+                            <input type="text" id="raf_username" name="username" placeholder="Username">
+                        </div>
+                        <div class="form-row">
+                            <input type="password" id="raf_password" name="password" placeholder="Password">
+                        </div>
+                    </div>
+                    <div id="raf_pat_auth" class="auth-fields" style="display: none;">
+                        <div class="form-row">
+                            <input type="text" id="raf_pat_name" name="pat_name" placeholder="PAT Name">
+                        </div>
+                        <div class="form-row">
+                            <input type="password" id="raf_pat_token" name="pat_token" placeholder="PAT Token">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Definition Selection -->
+                <div class="form-section">
+                    <h3>📊 Definition Selection</h3>
+                    <div class="form-row">
+                        <input type="text" id="raf_definition_id" name="definition_id" placeholder="Pulse Definition ID" required>
+                        <small>Enter the ID of the Pulse definition. All followers will be removed from every non-default (scoped) metric under this definition. The default metric is not modified.</small>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="button">🧹 Remove All Followers from Non-Default Metrics</button>
+                    <button type="button" class="button secondary" onclick="showTab('home')">← Back to Home</button>
+                </div>
+            </form>
+        </div>
+
         <!-- Export Definitions Tab -->
         <div id="export-definitions" class="tab-content">
             <div class="form-header">
@@ -1545,6 +1630,56 @@
 
                 <div class="form-actions">
                     <button type="submit" class="button">📑 Export Definitions</button>
+                    <button type="button" class="button secondary" onclick="showTab('home')">← Back to Home</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Favorite Metrics Tab -->
+        <div id="favorite-metrics" class="tab-content">
+            <div class="form-header">
+                <h2>⭐ Favorite Metrics</h2>
+                <p>Retrieve the list of metrics marked as favorites by the authenticated user</p>
+                <button type="button" class="button secondary back-button" onclick="showTab('home')">← Back to Home</button>
+            </div>
+
+            <form id="favoriteMetricsForm" onsubmit="submitFavoriteMetrics(event)">
+                <!-- Site Connection Section -->
+                <div class="form-section">
+                    <h3>🔗 Site Connection</h3>
+                    <div class="form-row">
+                        <input type="text" id="fav_host" name="server_host" placeholder="Tableau Server URL (e.g., https://your-server.com)" required>
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="fav_site" name="site_content_url" placeholder="Site Content URL (blank for Default)">
+                    </div>
+                    <div class="form-row">
+                        <select id="fav_auth_method" name="auth_method" onchange="toggleAuthFields('fav')" required>
+                            <option value="">Select Authentication Method</option>
+                            <option value="password">Username/Password</option>
+                            <option value="pat">Personal Access Token</option>
+                        </select>
+                    </div>
+                    <div id="fav_user_auth" class="auth-fields" style="display: none;">
+                        <div class="form-row">
+                            <input type="text" id="fav_username" name="username" placeholder="Username">
+                        </div>
+                        <div class="form-row">
+                            <input type="password" id="fav_password" name="password" placeholder="Password">
+                        </div>
+                    </div>
+                    <div id="fav_pat_auth" class="auth-fields" style="display: none;">
+                        <div class="form-row">
+                            <input type="text" id="fav_pat_name" name="pat_name" placeholder="PAT Name">
+                        </div>
+                        <div class="form-row">
+                            <input type="password" id="fav_pat_token" name="pat_token" placeholder="PAT Token">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="button">⭐ Get My Favorite Metrics</button>
                     <button type="button" class="button secondary" onclick="showTab('home')">← Back to Home</button>
                 </div>
             </form>
@@ -2531,6 +2666,37 @@
             }
         }
 
+        async function submitRemoveAllFollowers(event) {
+            event.preventDefault();
+            
+            const formData = new FormData(event.target);
+            const data = Object.fromEntries(formData.entries());
+            
+            clearPreviousResults();
+            showProgress('🧹 Removing all followers from non-default metrics...', '🧹 Remove All Followers Results');
+            
+            try {
+                const response = await fetch('/remove-all-followers', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showResults(result, '✅ Remove all followers completed!');
+                } else {
+                    showError(result.error || 'Unknown error occurred', '❌ Remove all followers failed');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showError('Failed to communicate with server: ' + error.message, '❌ Remove all followers failed');
+            }
+        }
+
         // Submit export definitions form
         async function submitExportDefinitions(event) {
             event.preventDefault();
@@ -2787,10 +2953,140 @@
             document.body.removeChild(link);
         }
 
+        async function submitFavoriteMetrics(event) {
+            event.preventDefault();
+
+            const formData = new FormData(event.target);
+            const data = Object.fromEntries(formData.entries());
+
+            clearPreviousResults();
+            showProgress('⭐ Fetching favorite metrics...', '⭐ Favorite Metrics Results');
+
+            try {
+                const response = await fetch('/favorite-metrics', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showFavoriteMetricsResults(result);
+                } else {
+                    showError(result.error || 'Unknown error occurred', '❌ Failed to get favorite metrics');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showError('Failed to communicate with server: ' + error.message, '❌ Failed to get favorite metrics');
+            }
+        }
+
+        function showFavoriteMetricsResults(result) {
+            const progressDiv = document.getElementById('progress');
+            const resultsDiv = document.getElementById('copyResults');
+
+            progressDiv.innerHTML = '✅ Favorite metrics retrieved!';
+
+            let resultsHTML = '';
+
+            // Show progress messages
+            if (result.results && result.results.length > 0) {
+                result.results.forEach(item => {
+                    const statusClass = item.success ? 'success' : 'error';
+                    const statusIcon = item.success ? '✅' : '❌';
+                    resultsHTML += `
+                        <div class="result-item ${statusClass}">
+                            ${statusIcon} ${item.message}
+                        </div>
+                    `;
+                });
+            }
+
+            // Show summary
+            if (result.summary) {
+                resultsHTML += `
+                    <div class="result-item">
+                        <strong>📊 Summary:</strong><br>
+                        ${result.summary}
+                    </div>
+                `;
+            }
+
+            // Show favorites table
+            if (result.favorite_metrics && result.favorite_metrics.length > 0) {
+                window.favoriteMetricsData = result.favorite_metrics;
+
+                let tableHTML = '<div class="result-item" style="margin-top: 20px; padding: 15px; background-color: white; border-radius: 8px;">';
+                tableHTML += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">';
+                tableHTML += '<h3 style="margin: 0; color: #333;">⭐ Favorite Metrics (' + result.favorite_metrics.length + ' total)</h3>';
+                tableHTML += '<button onclick="downloadFavoriteMetricsCSV()" class="button" style="padding: 8px 16px; font-size: 14px;">📥 Download CSV</button>';
+                tableHTML += '</div>';
+                tableHTML += '<div style="overflow-x: auto; max-height: 500px; overflow-y: auto;">';
+                tableHTML += '<table style="width: 100%; border-collapse: collapse; font-size: 12px; background-color: white;">';
+                tableHTML += '<thead style="position: sticky; top: 0; z-index: 1;">';
+                tableHTML += '<tr style="background-color: #f5f5f5; border-bottom: 2px solid #ddd;">';
+                tableHTML += '<th style="padding: 10px; text-align: left; border: 1px solid #ddd; font-weight: 600; white-space: nowrap;">Definition Name</th>';
+                tableHTML += '<th style="padding: 10px; text-align: left; border: 1px solid #ddd; font-weight: 600; white-space: nowrap;">Datasource</th>';
+                tableHTML += '<th style="padding: 10px; text-align: left; border: 1px solid #ddd; font-weight: 600; white-space: nowrap;">Type</th>';
+                tableHTML += '<th style="padding: 10px; text-align: left; border: 1px solid #ddd; font-weight: 600; white-space: nowrap;">Filters</th>';
+                tableHTML += '<th style="padding: 10px; text-align: left; border: 1px solid #ddd; font-weight: 600; white-space: nowrap;">Metric ID</th>';
+                tableHTML += '<th style="padding: 10px; text-align: left; border: 1px solid #ddd; font-weight: 600; white-space: nowrap;">Definition ID</th>';
+                tableHTML += '</tr></thead><tbody>';
+
+                result.favorite_metrics.forEach((row, index) => {
+                    const bgColor = index % 2 === 0 ? '#fff' : '#f9f9f9';
+                    tableHTML += '<tr style="background-color: ' + bgColor + ';">';
+                    tableHTML += '<td style="padding: 8px; border: 1px solid #ddd;">' + (row.definition_name || '') + '</td>';
+                    tableHTML += '<td style="padding: 8px; border: 1px solid #ddd;">' + (row.datasource_label || '') + '</td>';
+                    tableHTML += '<td style="padding: 8px; border: 1px solid #ddd; white-space: nowrap;">' + (row.metric_type || '') + '</td>';
+                    tableHTML += '<td style="padding: 8px; border: 1px solid #ddd;">' + (row.filters || '') + '</td>';
+                    tableHTML += '<td style="padding: 8px; border: 1px solid #ddd; font-family: monospace; font-size: 10px;">' + (row.metric_id || '') + '</td>';
+                    tableHTML += '<td style="padding: 8px; border: 1px solid #ddd; font-family: monospace; font-size: 10px;">' + (row.definition_id || '') + '</td>';
+                    tableHTML += '</tr>';
+                });
+
+                tableHTML += '</tbody></table></div></div>';
+                resultsHTML += tableHTML;
+            }
+
+            resultsDiv.innerHTML = resultsHTML;
+            document.getElementById('results').style.display = 'block';
+        }
+
+        function downloadFavoriteMetricsCSV() {
+            if (!window.favoriteMetricsData || window.favoriteMetricsData.length === 0) {
+                alert('No favorite metrics data available to download');
+                return;
+            }
+
+            const columns = ['definition_name', 'datasource_label', 'metric_type', 'filters', 'metric_id', 'definition_id'];
+            const headers = ['Definition Name', 'Datasource', 'Type', 'Filters', 'Metric ID', 'Definition ID'];
+
+            let csvContent = headers.join(',') + '\n';
+            window.favoriteMetricsData.forEach(row => {
+                const values = columns.map(col => {
+                    const val = String(row[col] || '');
+                    return '"' + val.replace(/"/g, '""') + '"';
+                });
+                csvContent += values.join(',') + '\n';
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            link.href = URL.createObjectURL(blob);
+            link.download = `favorite_metrics_${timestamp}.csv`;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
         // Reset form and return to home
         function resetForm() {
             // Reset all forms
-            const forms = ['copyDefinitionsForm', 'manageFollowersForm', 'swapDatasourcesForm', 'updatePreferencesForm', 'checkCertifiedForm', 'bulkScopedForm', 'analyticsForm', 'tcmLogsForm', 'zeroFollowersForm', 'exportDefinitionsForm'];
+            const forms = ['copyDefinitionsForm', 'manageFollowersForm', 'swapDatasourcesForm', 'updatePreferencesForm', 'checkCertifiedForm', 'bulkScopedForm', 'analyticsForm', 'tcmLogsForm', 'zeroFollowersForm', 'exportDefinitionsForm', 'favoriteMetricsForm'];
             forms.forEach(formId => {
                 const form = document.getElementById(formId);
                 if (form) form.reset();
