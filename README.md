@@ -1,6 +1,6 @@
 # Tableau Pulse Utilities
 
-A comprehensive web application suite for managing Tableau Pulse with eleven powerful utilities, built with Python Flask and featuring a modern, responsive UI.
+A comprehensive web application suite for managing Tableau Pulse with twelve powerful utilities, built with Python Flask and featuring a modern, responsive UI.
 
 ## 🚀 Available Utilities
 
@@ -56,7 +56,15 @@ Get comprehensive insights and analytics about Pulse metric usage across your si
 - **✅ Certification Insights**: Track how many definitions are certified
 - **Interactive Dashboard**: Visual cards and sortable tables for easy analysis
 
-### 8. 🔍 Zero Follower Metrics
+### 8. 📋 TCM Activity Logs
+Download and view activity logs from Tableau Cloud Manager for your site
+- **📥 Download activity logs**: Fetch raw logs from TCM for a configurable date range
+- **📅 Date range**: Last 14 days by default; customize start and end dates
+- **🔍 Combined log view**: View combined logs in the browser
+- **📥 CSV export**: Export subscription/activity events to CSV for analysis
+- **📊 Enriched events**: Optional Tableau authentication to resolve user and metric names in the export
+
+### 9. 🔍 Zero Follower Metrics
 Find metrics within a definition that have no followers
 - **📊 Analyze by Definition**: Enter a Pulse definition ID to analyze all its metrics
 - **🚫 Identify Unused Metrics**: Find metrics with zero followers (both default and scoped)
@@ -64,20 +72,11 @@ Find metrics within a definition that have no followers
 - **📋 Detailed Reporting**: View metrics with zero followers and metrics with followers side-by-side
 - **⚠️ Safe Deletion**: Default metrics cannot be deleted and are automatically skipped
 
-### 9. ⭐ Favorite Metrics
-Get a list of metrics marked as favorites by the authenticated user
-- Calls the same `followedMetricsGroups` endpoint used by the Tableau Pulse UI
-- Filters followed metrics to only those tagged as favorites
-- Displays definition name, datasource, metric type, and applied filters
-- Exports results to CSV
-
-### 10. 📋 TCM Activity Logs
-Download and view activity logs from Tableau Cloud Manager for your site
-- **📥 Download activity logs**: Fetch raw logs from TCM for a configurable date range
-- **📅 Date range**: Last 14 days by default; customize start and end dates
-- **🔍 Combined log view**: View combined logs in the browser
-- **📥 CSV export**: Export subscription/activity events to CSV for analysis
-- **📊 Enriched events**: Optional Tableau authentication to resolve user and metric names in the export
+### 10. 🧹 Remove All Followers
+Remove all followers from all non-default (scoped) metrics for a given definition
+- **📊 By definition ID**: Enter a Pulse definition ID to process all its metrics
+- **⏭️ Default metric unchanged**: The default metric is never modified
+- **🧹 Scoped metrics cleared**: Every follower is removed from each non-default metric under the definition
 
 ### 11. 📑 Export Definitions
 Export all Pulse metric definitions to CSV for documentation or analysis
@@ -86,6 +85,13 @@ Export all Pulse metric definitions to CSV for documentation or analysis
 - **🎨 Viz State Support**: Handles Viz State definitions appropriately (marks measure/filters as embedded)
 - **📥 Download CSV**: Tab-delimited CSV file with one row per definition
 - **🗄️ Datasource Names**: Automatically resolves datasource IDs to names
+
+### 12. ⭐ Favorite Metrics
+Get a list of metrics marked as favorites by the authenticated user
+- Calls the same `followedMetricsGroups` endpoint used by the Tableau Pulse UI
+- Filters followed metrics to only those tagged as favorites
+- Displays definition name, datasource, metric type, and applied filters
+- Exports results to CSV
 
 ## ✨ Common Features
 
@@ -162,7 +168,7 @@ hello-world-app/
 
 ### Getting Started
 1. Start the application and visit `http://localhost:3000`
-2. Choose one of the eleven available utilities from the home page
+2. Choose one of the twelve available utilities from the home page
 3. Fill in the required connection and configuration details
 4. Monitor real-time progress and results
 
@@ -445,7 +451,7 @@ hello-world-app/
 
 ## 🎯 What's Included
 
-This application suite includes eleven powerful utilities for managing Tableau Pulse:
+This application suite includes twelve powerful utilities for managing Tableau Pulse:
 
 ### Available Utilities:
 1. **Pulse Definition Copier** - Copy definitions between sites
@@ -455,10 +461,11 @@ This application suite includes eleven powerful utilities for managing Tableau P
 5. **Check Certified Metrics** - View and manage metric certifications
 6. **Bulk Create Scoped Metrics** - Create multiple scoped metrics with dimension filters
 7. **Pulse Analytics** - Get comprehensive insights into metric usage and follower engagement
-8. **Zero Follower Metrics** - Find and optionally delete metrics with no followers
-9. **Favorite Metrics** - Get a list of metrics favorited by the authenticated user
-10. **TCM Activity Logs** - Download and view activity logs from Tableau Cloud Manager (with CSV export)
+8. **TCM Activity Logs** - Download and view activity logs from Tableau Cloud Manager (with CSV export)
+9. **Zero Follower Metrics** - Find and optionally delete metrics with no followers
+10. **Remove All Followers** - Remove all followers from non-default metrics for a definition
 11. **Export Definitions** - Export all metric definitions to CSV for documentation
+12. **Favorite Metrics** - Get a list of metrics favorited by the authenticated user
 
 ### Benefits of the Web Interface:
 - **🌐 No CLI Required**: Everything runs through the web browser
@@ -467,7 +474,7 @@ This application suite includes eleven powerful utilities for managing Tableau P
 - **🔒 Security**: Credentials are handled securely without persistent storage
 - **🚀 Enhanced Functionality**: Same power as the original CLI scripts with improved usability
 - **📱 Accessibility**: Works on any device with a web browser
-- **🏠 Unified Interface**: All eleven utilities in one convenient location
+- **🏠 Unified Interface**: All twelve utilities in one convenient location
 
 ### Technical Features:
 - Modern Flask web framework
