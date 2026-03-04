@@ -1,6 +1,6 @@
 # Tableau Pulse Utilities
 
-A comprehensive web application suite for managing Tableau Pulse with ten powerful utilities, built with Python Flask and featuring a modern, responsive UI.
+A comprehensive web application suite for managing Tableau Pulse with eleven powerful utilities, built with Python Flask and featuring a modern, responsive UI.
 
 ## 🚀 Available Utilities
 
@@ -71,7 +71,15 @@ Get a list of metrics marked as favorites by the authenticated user
 - Displays definition name, datasource, metric type, and applied filters
 - Exports results to CSV
 
-### 10. 📑 Export Definitions
+### 10. 📋 TCM Activity Logs
+Download and view activity logs from Tableau Cloud Manager for your site
+- **📥 Download activity logs**: Fetch raw logs from TCM for a configurable date range
+- **📅 Date range**: Last 14 days by default; customize start and end dates
+- **🔍 Combined log view**: View combined logs in the browser
+- **📥 CSV export**: Export subscription/activity events to CSV for analysis
+- **📊 Enriched events**: Optional Tableau authentication to resolve user and metric names in the export
+
+### 11. 📑 Export Definitions
 Export all Pulse metric definitions to CSV for documentation or analysis
 - **📋 Basic Mode**: Export essential fields - Name, Measure, Time Dimension, Definitional Filters, Datasource Name
 - **📊 Verbose Mode**: Export all configuration details including extension options, comparisons, certification status, and more
@@ -154,7 +162,7 @@ hello-world-app/
 
 ### Getting Started
 1. Start the application and visit `http://localhost:3000`
-2. Choose one of the nine available utilities from the home page
+2. Choose one of the eleven available utilities from the home page
 3. Fill in the required connection and configuration details
 4. Monitor real-time progress and results
 
@@ -437,7 +445,7 @@ hello-world-app/
 
 ## 🎯 What's Included
 
-This application suite includes ten powerful utilities for managing Tableau Pulse:
+This application suite includes eleven powerful utilities for managing Tableau Pulse:
 
 ### Available Utilities:
 1. **Pulse Definition Copier** - Copy definitions between sites
@@ -448,8 +456,9 @@ This application suite includes ten powerful utilities for managing Tableau Puls
 6. **Bulk Create Scoped Metrics** - Create multiple scoped metrics with dimension filters
 7. **Pulse Analytics** - Get comprehensive insights into metric usage and follower engagement
 8. **Zero Follower Metrics** - Find and optionally delete metrics with no followers
-9. **Export Definitions** - Export all metric definitions to CSV for documentation
-10. **Favorite Metrics** - Get a list of metrics favorited by the authenticated user
+9. **Favorite Metrics** - Get a list of metrics favorited by the authenticated user
+10. **TCM Activity Logs** - Download and view activity logs from Tableau Cloud Manager (with CSV export)
+11. **Export Definitions** - Export all metric definitions to CSV for documentation
 
 ### Benefits of the Web Interface:
 - **🌐 No CLI Required**: Everything runs through the web browser
@@ -458,7 +467,7 @@ This application suite includes ten powerful utilities for managing Tableau Puls
 - **🔒 Security**: Credentials are handled securely without persistent storage
 - **🚀 Enhanced Functionality**: Same power as the original CLI scripts with improved usability
 - **📱 Accessibility**: Works on any device with a web browser
-- **🏠 Unified Interface**: All ten utilities in one convenient location
+- **🏠 Unified Interface**: All eleven utilities in one convenient location
 
 ### Technical Features:
 - Modern Flask web framework
