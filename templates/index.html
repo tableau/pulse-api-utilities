@@ -1697,6 +1697,19 @@
     </div>
 
     <script>
+        // Helper function to safely parse JSON responses and handle timeouts
+        async function safeJsonParse(response) {
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                // Response is not JSON (likely an HTML error page from Heroku timeout)
+                if (response.status === 503) {
+                    throw new Error('Request timed out (30s limit). Try processing fewer items at once.');
+                }
+                throw new Error('Server error occurred. The response was not JSON.');
+            }
+            return await response.json();
+        }
+
         // Tab management
         function showTab(tabName) {
             // Hide all tab contents
@@ -1827,7 +1840,7 @@
                     body: JSON.stringify(data)
                 });
                 
-                const result = await response.json();
+                const result = await safeJsonParse(response);
                 
                 if (result.success) {
                     showResults(result, '✅ Copy process completed!');
@@ -1873,10 +1886,10 @@
                     // Manual Entry Mode - use JSON
                     const formData = new FormData(event.target);
                     const data = Object.fromEntries(formData.entries());
-                    
+
                     // Remove CSV file field if present
                     delete data.csv_file;
-                    
+
                     response = await fetch('/manage-followers', {
                         method: 'POST',
                         headers: {
@@ -1885,8 +1898,8 @@
                         body: JSON.stringify(data)
                     });
                 }
-                
-                const result = await response.json();
+
+                const result = await safeJsonParse(response);
                 
                 if (result.success) {
                     showResults(result, '✅ Follower management completed!');
@@ -1954,7 +1967,7 @@
                     body: JSON.stringify(data)
                 });
                 
-                const result = await response.json();
+                const result = await safeJsonParse(response);
                 
                 if (result.success) {
                     showResults(result, '✅ Datasource swap completed!');
@@ -2191,7 +2204,7 @@
                     body: JSON.stringify(data)
                 });
 
-                const result = await response.json();
+                const result = await safeJsonParse(response);
                 
                 if (result.success) {
                     showResults(result, '✅ User preferences update completed!');
@@ -2223,7 +2236,7 @@
                     body: JSON.stringify(data)
                 });
 
-                const result = await response.json();
+                const result = await safeJsonParse(response);
                 
                 if (result.success) {
                     showResults(result, '✅ Certification check completed!');
@@ -2274,7 +2287,7 @@
                     });
                 }
 
-                const result = await response.json();
+                const result = await safeJsonParse(response);
                 
                 if (result.success) {
                     showResults(result, '✅ Scoped metrics creation completed!');
@@ -2352,7 +2365,7 @@
                     body: JSON.stringify(data)
                 });
 
-                const result = await response.json();
+                const result = await safeJsonParse(response);
                 
                 if (result.success) {
                     // Hide progress and show analytics dashboard
@@ -2600,7 +2613,7 @@
                     body: JSON.stringify(data)
                 });
 
-                const result = await response.json();
+                const result = await safeJsonParse(response);
                 
                 console.log('TCM Result:', result);
                 console.log('Events data:', result.events_data);
@@ -2653,7 +2666,7 @@
                     body: JSON.stringify(data)
                 });
                 
-                const result = await response.json();
+                const result = await safeJsonParse(response);
                 
                 if (result.success) {
                     showZeroFollowerResults(result, '✅ Analysis completed!');
@@ -2684,7 +2697,7 @@
                     body: JSON.stringify(data)
                 });
                 
-                const result = await response.json();
+                const result = await safeJsonParse(response);
                 
                 if (result.success) {
                     showResults(result, '✅ Remove all followers completed!');
@@ -2717,7 +2730,7 @@
                     body: JSON.stringify(data)
                 });
 
-                const result = await response.json();
+                const result = await safeJsonParse(response);
                 
                 console.log('Export Result:', result);
                 
@@ -2969,7 +2982,7 @@
                     body: JSON.stringify(data)
                 });
 
-                const result = await response.json();
+                const result = await safeJsonParse(response);
 
                 if (result.success) {
                     showFavoriteMetricsResults(result);
