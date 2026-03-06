@@ -26,6 +26,7 @@ app = Flask(__name__)
 
 # Constants
 API_VERSION = "3.24"
+REQUEST_TIMEOUT = 20  # Timeout for API requests in seconds
 
 # ------------------------------
 # Sign in helpers (from original CLI script)
@@ -50,7 +51,7 @@ def sign_in_rest(host, site_content_url, username=None, password=None, pat_name=
             }
         }
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
-    r = requests.post(url, headers=headers, json=payload)
+    r = requests.post(url, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
     data = r.json()["credentials"]
     return data["token"], data["site"]["id"]
@@ -61,7 +62,7 @@ def force_sign_out(host, token=None):
         url = f"{host}/api/{API_VERSION}/auth/signout"
         headers = {"X-Tableau-Auth": token}
         try:
-            requests.post(url, headers=headers)
+            requests.post(url, headers=headers, timeout=REQUEST_TIMEOUT)
             return True
         except Exception:
             return False
@@ -74,7 +75,7 @@ def get_datasource_id_rest(host, token, site_id, datasource_name):
     """Get datasource ID by name"""
     url = f"{host}/api/{API_VERSION}/sites/{site_id}/datasources"
     headers = {"X-Tableau-Auth": token, "Accept": "application/json"}
-    r = requests.get(url, headers=headers)
+    r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
     ds_list = r.json().get("datasources", {}).get("datasource", [])
     for ds in ds_list:
@@ -88,7 +89,7 @@ def get_all_datasources_rest(host, token, site_id, api_version):
     headers = {"X-Tableau-Auth": token, "Accept": "application/json"}
     
     try:
-        r = requests.get(url, headers=headers)
+        r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         r.raise_for_status()
         ds_list = r.json().get("datasources", {}).get("datasource", [])
         
@@ -111,7 +112,7 @@ def get_pulse_definition(host, definition_id, token):
     """Get pulse definition by ID"""
     url = f"{host}/api/-/pulse/definitions/{definition_id}"
     headers = {"X-Tableau-Auth": token}
-    r = requests.get(url, headers=headers)
+    r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
     return r.json()["definition"]
 
@@ -119,7 +120,7 @@ def create_pulse_definition(host, pulse_token, definition_payload):
     """Create new pulse definition"""
     url = f"{host}/api/-/pulse/definitions"
     headers = {"Content-Type": "application/json", "X-Tableau-Auth": pulse_token}
-    r = requests.post(url, headers=headers, json=definition_payload)
+    r = requests.post(url, headers=headers, json=definition_payload, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
     return r.json()
 
@@ -181,7 +182,7 @@ def get_definitions_to_copy(host, token, datasource_id, choice):
     if choice.lower() == "all":
         url = f"{host}/api/-/pulse/definitions"
         headers = {"X-Tableau-Auth": token}
-        r = requests.get(url, headers=headers)
+        r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         r.raise_for_status()
         all_defs = r.json().get("definitions", [])
         defs_for_ds = [
@@ -222,7 +223,7 @@ def sign_in_rest_xml(server, site, auth_type, username=None, password=None, pat_
     else:
         raise ValueError("Unknown auth_type")
 
-    r = requests.post(url, data=xml_payload.encode("utf-8"), headers=headers)
+    r = requests.post(url, data=xml_payload.encode("utf-8"), headers=headers, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
 
     # Parse XML to get token and site_id
@@ -236,7 +237,7 @@ def get_user_id_by_email(server, token, site_id, email):
     url = f"{server}/api/{API_VERSION}/sites/{site_id}/users"
     headers = {"X-Tableau-Auth": token}
 
-    r = requests.get(url, headers=headers)
+    r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
 
     root = ET.fromstring(r.text)
@@ -251,7 +252,7 @@ def get_metric_followers(pulse_server, pulse_token, metric_id):
     url = f"{pulse_server}/api/-/pulse/subscriptions?metric_id={metric_id}&page_size=1000"
     headers = {"X-Tableau-Auth": pulse_token}
 
-    r = requests.get(url, headers=headers)
+    r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
     data = r.json()
 
@@ -271,9 +272,9 @@ def batch_create_subscriptions(pulse_server, pulse_token, metric_id, user_ids):
     
     url = f"{pulse_server}/api/-/pulse/subscriptions:batchCreate"
     headers = {"X-Tableau-Auth": pulse_token, "Content-Type": "application/json"}
-    
+
     try:
-        r = requests.post(url, headers=headers, json=payload)
+        r = requests.post(url, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
         r.raise_for_status()
         return {"success": True, "message": f"✅ Added {len(user_ids)} followers to metric {metric_id}"}
     except requests.exceptions.HTTPError as e:
@@ -292,7 +293,7 @@ def remove_followers(pulse_server, pulse_token, metric_id, user_ids_to_remove):
     headers = {"X-Tableau-Auth": pulse_token}
     url = f"{pulse_server}/api/-/pulse/subscriptions?metric_id={metric_id}&page_size=1000"
 
-    r = requests.get(url, headers=headers)
+    r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
     data = r.json()
 
@@ -304,7 +305,7 @@ def remove_followers(pulse_server, pulse_token, metric_id, user_ids_to_remove):
         follower_id = sub["follower"]["user_id"]
         if follower_id in user_ids_to_remove:
             delete_url = f"{pulse_server}/api/-/pulse/subscriptions/{sub_id}"
-            del_resp = requests.delete(delete_url, headers=headers)
+            del_resp = requests.delete(delete_url, headers=headers, timeout=REQUEST_TIMEOUT)
             if del_resp.status_code == 204:
                 removed_count += 1
 
@@ -318,7 +319,7 @@ def get_pulse_definition_for_swap(host, definition_id, token):
     """Get pulse definition for datasource swapping"""
     url = f"{host}/api/-/pulse/definitions/{definition_id}"
     headers = {"X-Tableau-Auth": token}
-    r = requests.get(url, headers=headers)
+    r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
     return r.json()["definition"]
 
@@ -326,7 +327,7 @@ def create_pulse_definition_for_swap(host, token, definition_payload):
     """Create pulse definition for datasource swapping"""
     url = f"{host}/api/-/pulse/definitions"
     headers = {"X-Tableau-Auth": token, "Content-Type": "application/json"}
-    r = requests.post(url, headers=headers, json=definition_payload)
+    r = requests.post(url, headers=headers, json=definition_payload, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
     return r.json()["definition"]
 
@@ -334,7 +335,7 @@ def get_metrics_for_definition_swap(host, definition_id, token):
     """Get metrics for a definition during datasource swap"""
     url = f"{host}/api/-/pulse/definitions/{definition_id}/metrics"
     headers = {"X-Tableau-Auth": token}
-    r = requests.get(url, headers=headers)
+    r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
     return r.json().get("metrics", [])
 
@@ -349,7 +350,7 @@ def create_metric_for_swap(host, definition_id, metric_payload, token):
     payload = metric_payload.copy()
     payload["definition_id"] = definition_id
 
-    r = requests.post(url, headers=headers, json=payload)
+    r = requests.post(url, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
     return r.json()
 
@@ -357,7 +358,7 @@ def get_subscriptions_for_swap(host, metric_id, token):
     """Get subscriptions for metric during datasource swap"""
     url = f"{host}/api/-/pulse/subscriptions?page_size=1000&metric_id={metric_id}"
     headers = {"X-Tableau-Auth": token, "Content-Type": "application/json"}    
-    r = requests.get(url, headers=headers)
+    r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
     return r.json().get("subscriptions", [])
 
@@ -366,7 +367,7 @@ def add_follower_for_swap(host, metric_id, user_id, token):
     url = f"{host}/api/-/pulse/subscriptions"
     headers = {"X-Tableau-Auth": token, "Content-Type": "application/json"}    
     payload = {"metric_id": metric_id, "follower": {"user_id": user_id}}
-    r = requests.post(url, headers=headers, json=payload)
+    r = requests.post(url, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
     return r.json()
 
@@ -374,7 +375,7 @@ def remove_subscription_for_swap(host, subscription_id, token):
     """Remove subscription during datasource swap"""
     url = f"{host}/api/-/pulse/subscriptions/{subscription_id}"
     headers = {"X-Tableau-Auth": token, "Content-Type": "application/json"}    
-    r = requests.delete(url, headers=headers)
+    r = requests.delete(url, headers=headers, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
 
 def build_definition_payload_for_swap(definition_a, datasource_id):
@@ -409,7 +410,7 @@ def get_all_groups_rest(server_url, auth_token, site_id, api_version):
     }
     
     try:
-        response = requests.get(groups_url, headers=headers, verify=True)
+        response = requests.get(groups_url, headers=headers, verify=True, timeout=REQUEST_TIMEOUT)
         
         if response.status_code != 200:
             return {'success': False, 'error': f"Failed to get groups. Status: {response.status_code}"}
@@ -444,7 +445,7 @@ def get_users_in_group_rest(server_url, auth_token, site_id, group_id, api_versi
     }
     
     try:
-        response = requests.get(users_url, headers=headers, verify=True)
+        response = requests.get(users_url, headers=headers, verify=True, timeout=REQUEST_TIMEOUT)
         
         if response.status_code != 200:
             return {'success': False, 'error': f"Failed to get users. Status: {response.status_code}"}
@@ -482,7 +483,7 @@ def get_metric_definitions_rest(server_url, auth_token):
     }
     
     try:
-        response = requests.get(endpoint, headers=headers, verify=True)
+        response = requests.get(endpoint, headers=headers, verify=True, timeout=REQUEST_TIMEOUT)
         
         if response.status_code == 200:
             response_data = response.json()
@@ -595,7 +596,7 @@ def get_metric_details_rest(server_url, auth_token, metric_id):
     }
     
     try:
-        response = requests.get(url, headers=headers, verify=True)
+        response = requests.get(url, headers=headers, verify=True, timeout=REQUEST_TIMEOUT)
         
         if response.status_code == 200:
             return {'success': True, 'metric': response.json().get('metric', {})}
@@ -638,7 +639,7 @@ def get_all_metrics_for_definition_rest(server_url, auth_token, definition_id, e
             page_count += 1
             print(f"[Metrics Fetch] Fetching page {page_count}...")
             
-            response = requests.get(url, headers=headers, verify=True)
+            response = requests.get(url, headers=headers, verify=True, timeout=REQUEST_TIMEOUT)
             
             if response.status_code == 200:
                 response_data = response.json()
@@ -697,7 +698,7 @@ def delete_metric_rest(server_url, auth_token, metric_id):
     }
     
     try:
-        response = requests.delete(url, headers=headers, verify=True)
+        response = requests.delete(url, headers=headers, verify=True, timeout=REQUEST_TIMEOUT)
         
         if response.status_code == 204:
             return {'success': True}
@@ -732,7 +733,7 @@ def get_all_subscriptions_rest(server_url, auth_token):
             page_count += 1
             print(f"[Subscriptions Fetch] Fetching page {page_count}...")
             
-            response = requests.get(url, headers=headers, verify=True)
+            response = requests.get(url, headers=headers, verify=True, timeout=REQUEST_TIMEOUT)
             
             if response.status_code == 200:
                 response_data = response.json()
@@ -775,7 +776,7 @@ def create_scoped_metric_rest(server_url, auth_token, definition_id, metric_spec
     }
     
     try:
-        response = requests.post(url, headers=headers, json=payload, verify=True)
+        response = requests.post(url, headers=headers, json=payload, verify=True, timeout=REQUEST_TIMEOUT)
         
         # Accept both 200 (OK) and 201 (Created) as success
         if response.status_code in [200, 201]:
@@ -824,7 +825,7 @@ def authenticate_tableau_rest(server_url, api_version, site_content_url, auth_me
             'Accept': 'application/xml'
         }
         
-        response = requests.post(signin_url, data=xml_request, headers=headers, verify=True)
+        response = requests.post(signin_url, data=xml_request, headers=headers, verify=True, timeout=REQUEST_TIMEOUT)
         
         if response.status_code == 200:
             root = ET.fromstring(response.text)
@@ -871,7 +872,7 @@ def get_users_on_site(server_url, api_version, site_id, auth_token):
                 'Accept': 'application/json'
             }
             
-            response = requests.get(users_url, headers=headers, verify=True)
+            response = requests.get(users_url, headers=headers, verify=True, timeout=REQUEST_TIMEOUT)
             
             if response.status_code == 200:
                 data = json.loads(response.text)
@@ -1369,7 +1370,7 @@ def tcm_login(tcm_uri, pat_token):
         print(f"DEBUG: Attempting TCM login to: {url}")
         print(f"DEBUG: Payload: {json.dumps({'token': '***REDACTED***'})}")
         
-        response = requests.post(url, headers=headers, json=payload, verify=True)
+        response = requests.post(url, headers=headers, json=payload, verify=True, timeout=REQUEST_TIMEOUT)
         
         print(f"DEBUG: TCM login response status: {response.status_code}")
         print(f"DEBUG: TCM login response headers: {dict(response.headers)}")
@@ -1614,7 +1615,7 @@ def tcm_download_log_file(download_url, session_token=None):
     # S3 pre-signed URLs don't need authentication headers
     try:
         print(f"DEBUG: Downloading from URL (first 100 chars): {download_url[:100]}...")
-        response = requests.get(download_url, verify=True, stream=True)
+        response = requests.get(download_url, verify=True, stream=True, timeout=REQUEST_TIMEOUT)
         
         if response.status_code == 200:
             # Return the content as text
@@ -4682,7 +4683,7 @@ def favorite_metrics():
 
         try:
             url = f"{server_host}/api/-/pulse/metrics:followedMetricsGroups?group_by=GROUP_BY_DATASOURCE_LABEL&sort_order=SORT_ORDER_ASCENDING"
-            response = requests.get(url, headers=headers, verify=True)
+            response = requests.get(url, headers=headers, verify=True, timeout=REQUEST_TIMEOUT)
 
             if response.status_code != 200:
                 force_sign_out(server_host, auth_token)
@@ -4747,7 +4748,7 @@ def favorite_metrics():
                 try:
                     def_response = requests.get(
                         f"{server_host}/api/-/pulse/definitions/{definition_id}",
-                        headers=headers, verify=True
+                        headers=headers, verify=True, timeout=REQUEST_TIMEOUT
                     )
                     if def_response.status_code == 200:
                         def_data = def_response.json().get('definition', {})
