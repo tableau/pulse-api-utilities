@@ -4795,4 +4795,6 @@ def favorite_metrics():
 
 if __name__ == '__main__':
     # Run the Flask development server
-    app.run(debug=True, host='0.0.0.0', port=3000)
+    # Use PORT environment variable for Heroku, default to 3000 for local development
+    port = int(os.environ.get('PORT', 3000))
+    app.run(debug=False, host='0.0.0.0', port=port)
