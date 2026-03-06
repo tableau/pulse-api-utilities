@@ -25,15 +25,12 @@ git checkout main
 git merge feature/your-feature-name
 
 # 2. Deploy to both GitHub and Heroku (one command!)
-git deploy
+./deploy.sh
 ```
 
-## Git Aliases Set Up
+## Deploy Script
 
-Two aliases are configured for convenience:
-
-- **`git pushall`** - Push main to both remotes
-- **`git deploy`** - Same as pushall but with nice status messages
+A `deploy.sh` script is set up that pushes to both remotes with nice status messages.
 
 ## Full Workflow Example
 
@@ -48,7 +45,7 @@ git push origin feature/add-new-utility
 # When ready to deploy
 git checkout main
 git merge feature/add-new-utility
-git deploy  # ✅ Pushes to GitHub AND deploys to Heroku!
+./deploy.sh  # ✅ Pushes to GitHub AND deploys to Heroku!
 
 # Clean up feature branch (optional)
 git branch -d feature/add-new-utility
