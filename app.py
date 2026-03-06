@@ -11,6 +11,7 @@ import os
 from urllib.parse import urlparse, quote
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Tableau Hyper API
 try:
@@ -1931,35 +1932,44 @@ def manage_followers():
         if not user_ids:
             return jsonify({'success': False, 'error': 'No valid users found'})
         
-        # Process each metric
-        successful_operations = 0
-        failed_operations = 0
-        
-        for metric_id in metrics:
+        # Helper function to process a single metric
+        def process_metric(metric_id):
             try:
                 existing_followers = get_metric_followers(server_host, rest_token, metric_id)
-                
+
                 if action == 'add':
                     to_add = [uid for uid in user_ids if uid not in existing_followers]
                     if to_add:
                         result = batch_create_subscriptions(server_host, rest_token, metric_id, to_add)
-                        results.append(result)
-                        successful_operations += 1
+                        return (True, result)
                     else:
-                        results.append({'success': True, 'message': f'ℹ️ All users already follow metric {metric_id}'})
-                        
+                        return (True, {'success': True, 'message': f'ℹ️ All users already follow metric {metric_id}'})
+
                 else:  # remove
                     user_ids_to_remove = [uid for uid in user_ids if uid in existing_followers]
                     if user_ids_to_remove:
                         result = remove_followers(server_host, rest_token, metric_id, user_ids_to_remove)
-                        results.append(result)
-                        successful_operations += 1
+                        return (True, result)
                     else:
-                        results.append({'success': True, 'message': f'ℹ️ None of the users follow metric {metric_id}'})
-                        
+                        return (True, {'success': True, 'message': f'ℹ️ None of the users follow metric {metric_id}'})
+
             except Exception as e:
-                results.append({'success': False, 'message': f'❌ Failed to process metric {metric_id}: {str(e)}'})
-                failed_operations += 1
+                return (False, {'success': False, 'message': f'❌ Failed to process metric {metric_id}: {str(e)}'})
+
+        # Process metrics in parallel for better performance
+        successful_operations = 0
+        failed_operations = 0
+
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_metric = {executor.submit(process_metric, metric_id): metric_id for metric_id in metrics}
+
+            for future in as_completed(future_to_metric):
+                success, result = future.result()
+                results.append(result)
+                if success:
+                    successful_operations += 1
+                else:
+                    failed_operations += 1
         
         # Sign out
         force_sign_out(server_host, rest_token)
