@@ -202,9 +202,21 @@ def get_definitions_to_copy(host, token, datasource_id, choice):
 # ------------------------------
 
 def parse_tableau_datasource_url(input_str):
-    """Extract numeric datasource ID from a Tableau browser URL, or return None if not a URL."""
-    match = re.search(r'/#/site/[^/]+/datasources/([^/]+)', input_str)
-    return match.group(1) if match else None
+    """Parse a Tableau browser URL and return server, site, and datasource ID.
+
+    Handles URLs like:
+    https://server/#/site/mysite/datasources/12345/connections
+    Returns a dict with keys: server_url, site_content_url, datasource_id
+    or None if the input is not a recognisable Tableau URL.
+    """
+    match = re.search(r'(https://[^/#]+)/#/site/([^/]+)/datasources/([^/]+)', input_str)
+    if match:
+        return {
+            'server_url': match.group(1),
+            'site_content_url': match.group(2),
+            'datasource_id': match.group(3)
+        }
+    return None
 
 def get_datasource_details_by_name(host, token, site_id, datasource_input):
     """Get full datasource details by name (exact, then case-insensitive) or by browser URL.
@@ -215,8 +227,9 @@ def get_datasource_details_by_name(host, token, site_id, datasource_input):
     headers = {"X-Tableau-Auth": token, "Accept": "application/json"}
 
     # If input looks like a URL, try fetching by the numeric ID directly first
-    numeric_id = parse_tableau_datasource_url(datasource_input)
-    if numeric_id:
+    parsed = parse_tableau_datasource_url(datasource_input)
+    if parsed:
+        numeric_id = parsed['datasource_id']
         try:
             r = requests.get(
                 f"{host}/api/{API_VERSION}/sites/{site_id}/datasources/{numeric_id}",
@@ -227,33 +240,49 @@ def get_datasource_details_by_name(host, token, site_id, datasource_input):
         except Exception:
             pass  # fall through to full list search
 
-    # Fetch all datasources and match by name (exact, then case-insensitive)
+        # Try matching the numeric ID against the full datasource list
+        r = requests.get(f"{host}/api/{API_VERSION}/sites/{site_id}/datasources",
+                         headers=headers, timeout=REQUEST_TIMEOUT)
+        r.raise_for_status()
+        ds_list = r.json().get("datasources", {}).get("datasource", [])
+        for ds in ds_list:
+            if str(ds.get("contentUrl", "")) == numeric_id or str(ds.get("id", "")) == numeric_id:
+                return ds
+        raise ValueError(
+            f"Datasource with ID '{numeric_id}' not found on this site. "
+            f"Available: {', '.join(d['name'] for d in ds_list[:20])}"
+        )
+
+    # Plain name lookup — fetch full list
     r = requests.get(f"{host}/api/{API_VERSION}/sites/{site_id}/datasources",
                      headers=headers, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
     ds_list = r.json().get("datasources", {}).get("datasource", [])
 
-    # If we had a numeric ID but direct lookup failed, try matching it against contentUrl
-    if numeric_id:
-        for ds in ds_list:
-            if str(ds.get("contentUrl", "")) == str(numeric_id) or str(ds.get("id", "")) == str(numeric_id):
-                return ds
+    # Collect all matches (exact first, then case-insensitive)
+    exact = [ds for ds in ds_list if ds["name"] == datasource_input]
+    if len(exact) == 1:
+        return exact[0]
+    if len(exact) > 1:
+        dupes = ', '.join(f'"{d["name"]}" (project: {d.get("project", {}).get("name", "?")}, ID: {d["id"]})' for d in exact)
         raise ValueError(
-            f"Datasource with ID '{numeric_id}' not found. "
-            f"Available datasources: {', '.join(d['name'] for d in ds_list[:20])}"
+            f"Multiple datasources named '{datasource_input}' found: {dupes}. "
+            f"Paste the browser URL instead to identify the exact one."
         )
 
-    # Plain name lookup — exact match first, then case-insensitive
-    for ds in ds_list:
-        if ds["name"] == datasource_input:
-            return ds
-    for ds in ds_list:
-        if ds["name"].lower() == datasource_input.lower():
-            return ds
+    ci = [ds for ds in ds_list if ds["name"].lower() == datasource_input.lower()]
+    if len(ci) == 1:
+        return ci[0]
+    if len(ci) > 1:
+        dupes = ', '.join(f'"{d["name"]}" (project: {d.get("project", {}).get("name", "?")})' for d in ci)
+        raise ValueError(
+            f"Multiple datasources matched '{datasource_input}': {dupes}. "
+            f"Paste the browser URL instead to identify the exact one."
+        )
 
     raise ValueError(
         f"Datasource '{datasource_input}' not found. "
-        f"Available datasources: {', '.join(d['name'] for d in ds_list[:20])}"
+        f"Available: {', '.join(d['name'] for d in ds_list[:20])}"
     )
 
 def download_datasource_tdsx(host, token, site_id, datasource_id):
@@ -4945,6 +4974,15 @@ def backup_pulse():
         pat_name = data.get('pat_name', '').strip()
         pat_token = data.get('pat_token', '').strip()
 
+        # If datasource field contains a full URL, extract server/site from it
+        parsed_ds_url = parse_tableau_datasource_url(datasource_name)
+        if parsed_ds_url:
+            if not server_url:
+                server_url = parsed_ds_url['server_url']
+            if not site_content_url:
+                site_content_url = parsed_ds_url['site_content_url']
+            results.append({'success': True, 'message': f'🔗 Parsed datasource URL — server: {server_url}, site: {site_content_url or "(default)"}'})
+
         if not all([server_url, datasource_name, auth_method]):
             return jsonify({'success': False, 'error': 'server_url, datasource_name, and auth_method are required'})
 
@@ -4960,7 +4998,7 @@ def backup_pulse():
         results.append({'success': True, 'message': '✅ Authenticated'})
 
         # Get datasource details
-        results.append({'success': True, 'message': f'🔍 Looking up datasource "{datasource_name}"...'})
+        results.append({'success': True, 'message': f'🔍 Looking up datasource...'})
         try:
             ds = get_datasource_details_by_name(server_url, token, site_id, datasource_name)
         except Exception as e:
