@@ -201,17 +201,60 @@ def get_definitions_to_copy(host, token, datasource_id, choice):
 # Backup / Restore helpers
 # ------------------------------
 
-def get_datasource_details_by_name(host, token, site_id, datasource_name):
-    """Get full datasource details (id, project, etc.) by name"""
-    url = f"{host}/api/{API_VERSION}/sites/{site_id}/datasources"
+def parse_tableau_datasource_url(input_str):
+    """Extract numeric datasource ID from a Tableau browser URL, or return None if not a URL."""
+    match = re.search(r'/#/site/[^/]+/datasources/([^/]+)', input_str)
+    return match.group(1) if match else None
+
+def get_datasource_details_by_name(host, token, site_id, datasource_input):
+    """Get full datasource details by name (exact, then case-insensitive) or by browser URL.
+
+    Accepts either a plain datasource name or a full Tableau browser URL such as
+    https://server/#/site/mysite/datasources/12345/connections
+    """
     headers = {"X-Tableau-Auth": token, "Accept": "application/json"}
-    r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+
+    # If input looks like a URL, try fetching by the numeric ID directly first
+    numeric_id = parse_tableau_datasource_url(datasource_input)
+    if numeric_id:
+        try:
+            r = requests.get(
+                f"{host}/api/{API_VERSION}/sites/{site_id}/datasources/{numeric_id}",
+                headers=headers, timeout=REQUEST_TIMEOUT
+            )
+            if r.status_code == 200:
+                return r.json().get("datasource", {})
+        except Exception:
+            pass  # fall through to full list search
+
+    # Fetch all datasources and match by name (exact, then case-insensitive)
+    r = requests.get(f"{host}/api/{API_VERSION}/sites/{site_id}/datasources",
+                     headers=headers, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
     ds_list = r.json().get("datasources", {}).get("datasource", [])
+
+    # If we had a numeric ID but direct lookup failed, try matching it against contentUrl
+    if numeric_id:
+        for ds in ds_list:
+            if str(ds.get("contentUrl", "")) == str(numeric_id) or str(ds.get("id", "")) == str(numeric_id):
+                return ds
+        raise ValueError(
+            f"Datasource with ID '{numeric_id}' not found. "
+            f"Available datasources: {', '.join(d['name'] for d in ds_list[:20])}"
+        )
+
+    # Plain name lookup — exact match first, then case-insensitive
     for ds in ds_list:
-        if ds["name"] == datasource_name:
+        if ds["name"] == datasource_input:
             return ds
-    raise ValueError(f"Datasource '{datasource_name}' not found")
+    for ds in ds_list:
+        if ds["name"].lower() == datasource_input.lower():
+            return ds
+
+    raise ValueError(
+        f"Datasource '{datasource_input}' not found. "
+        f"Available datasources: {', '.join(d['name'] for d in ds_list[:20])}"
+    )
 
 def download_datasource_tdsx(host, token, site_id, datasource_id):
     """Download a datasource file from Tableau Cloud/Server"""
