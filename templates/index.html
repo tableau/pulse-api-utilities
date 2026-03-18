@@ -687,7 +687,8 @@
                         <input type="text" id="source_host" name="source_host" placeholder="Source Host (e.g., https://stage-dataplane1.tableau.sfdc.net)" required>
                     </div>
                     <div class="form-row">
-                        <input type="text" id="source_content_url" name="source_content_url" placeholder="Source Content URL" required>
+                        <input type="text" id="source_content_url" name="source_content_url" placeholder="Source Site Name (e.g., mysite)" required>
+                        <small>💡 The site name from the URL: tableau.com/#/site/<strong>mysite</strong>/...</small>
                     </div>
                     <div class="form-row">
                         <select id="source_auth_method" name="source_auth_method" onchange="toggleAuthFields('source')" required>
@@ -724,7 +725,8 @@
                         <input type="text" id="dest_host" name="dest_host" placeholder="Destination Host" required>
                     </div>
                     <div class="form-row">
-                        <input type="text" id="dest_content_url" name="dest_content_url" placeholder="Destination Content URL" required>
+                        <input type="text" id="dest_content_url" name="dest_content_url" placeholder="Destination Site Name (e.g., mysite)" required>
+                        <small>💡 The site name from the URL: tableau.com/#/site/<strong>mysite</strong>/...</small>
                     </div>
                     <div class="form-row">
                         <select id="dest_auth_method" name="dest_auth_method" onchange="toggleAuthFields('dest')" required>
@@ -786,7 +788,8 @@
                         <input type="text" id="manage_host" name="server_host" placeholder="Tableau Server URL (e.g., https://your-server.com)" required>
                     </div>
                     <div class="form-row">
-                        <input type="text" id="manage_site" name="site_content_url" placeholder="Site Content URL" required>
+                        <input type="text" id="manage_site" name="site_content_url" placeholder="Site Name (e.g., mysite)" required>
+                        <small>💡 The site name from the URL: tableau.com/#/site/<strong>mysite</strong>/...</small>
                     </div>
                     <div class="form-row">
                         <select id="manage_auth_method" name="auth_method" onchange="toggleAuthFields('manage')" required>
@@ -892,7 +895,7 @@
                         <input type="text" id="swap_host" name="server_host" placeholder="Tableau Server URL (e.g., https://your-server.com)" required>
                     </div>
                     <div class="form-row">
-                        <input type="text" id="swap_site" name="site_content_url" placeholder="Site Content URL (blank for Default)" required>
+                        <input type="text" id="swap_site" name="site_content_url" placeholder="Site Name (e.g., mysite — blank for Default)" required>
                     </div>
                     <div class="form-row">
                         <select id="swap_auth_method" name="auth_method" onchange="toggleAuthFields('swap')" required>
@@ -970,7 +973,7 @@
                         <input type="text" id="prefs_api_version" name="api_version" value="3.26" placeholder="API Version (e.g., 3.26)" pattern="^\d+\.\d+$">
                     </div>
                     <div class="form-row">
-                        <input type="text" id="prefs_site_content_url" name="site_content_url" placeholder="Site Content URL (blank for Default)">
+                        <input type="text" id="prefs_site_content_url" name="site_content_url" placeholder="Site Name (e.g., mysite — blank for Default)">
                     </div>
                     <div class="form-row">
                         <select id="prefs_auth_method" name="auth_method" onchange="toggleAuthFields('prefs')" required>
@@ -1085,7 +1088,7 @@
                         <input type="text" id="cert_api_version" name="api_version" value="3.26" placeholder="API Version (e.g., 3.26)" pattern="^\d+\.\d+$">
                     </div>
                     <div class="form-row">
-                        <input type="text" id="cert_site_content_url" name="site_content_url" placeholder="Site Content URL (blank for Default)">
+                        <input type="text" id="cert_site_content_url" name="site_content_url" placeholder="Site Name (e.g., mysite — blank for Default)">
                     </div>
                     <div class="form-row">
                         <select id="cert_auth_method" name="auth_method" onchange="toggleAuthFields('cert')" required>
@@ -1159,7 +1162,7 @@
                         <input type="text" id="scoped_api_version" name="api_version" value="3.26" placeholder="API Version (e.g., 3.26)" pattern="^\d+\.\d+$">
                     </div>
                     <div class="form-row">
-                        <input type="text" id="scoped_site_content_url" name="site_content_url" placeholder="Site Content URL (blank for Default)">
+                        <input type="text" id="scoped_site_content_url" name="site_content_url" placeholder="Site Name (e.g., mysite — blank for Default)">
                     </div>
                     <div class="form-row">
                         <select id="scoped_auth_method" name="auth_method" onchange="toggleAuthFields('scoped')" required>
@@ -1268,7 +1271,7 @@
                         <input type="text" id="analytics_api_version" name="api_version" value="3.26" placeholder="API Version (e.g., 3.26)" pattern="^\d+\.\d+$">
                     </div>
                     <div class="form-row">
-                        <input type="text" id="analytics_site_content_url" name="site_content_url" placeholder="Site Content URL (blank for Default)">
+                        <input type="text" id="analytics_site_content_url" name="site_content_url" placeholder="Site Name (e.g., mysite — blank for Default)">
                     </div>
                     <div class="form-row">
                         <select id="analytics_auth_method" name="auth_method" onchange="toggleAuthFields('analytics')" required>
@@ -1435,7 +1438,7 @@
                         <input type="text" id="zero_host" name="server_host" placeholder="Tableau Server URL (e.g., https://your-server.com)" required>
                     </div>
                     <div class="form-row">
-                        <input type="text" id="zero_site" name="site_content_url" placeholder="Site Content URL (blank for Default)">
+                        <input type="text" id="zero_site" name="site_content_url" placeholder="Site Name (e.g., mysite — blank for Default)">
                     </div>
                     <div class="form-row">
                         <select id="zero_auth_method" name="auth_method" onchange="toggleAuthFields('zero')" required>
@@ -1518,7 +1521,7 @@
                         <input type="text" id="raf_host" name="server_host" placeholder="Tableau Server URL (e.g., https://your-server.com)" required>
                     </div>
                     <div class="form-row">
-                        <input type="text" id="raf_site" name="site_content_url" placeholder="Site Content URL (blank for Default)">
+                        <input type="text" id="raf_site" name="site_content_url" placeholder="Site Name (e.g., mysite — blank for Default)">
                     </div>
                     <div class="form-row">
                         <select id="raf_auth_method" name="auth_method" onchange="toggleAuthFields('raf')" required>
@@ -1580,7 +1583,7 @@
                         <input type="text" id="export_api_version" name="api_version" placeholder="API Version (default: 3.26)" value="3.26">
                     </div>
                     <div class="form-row">
-                        <input type="text" id="export_site_content_url" name="site_content_url" placeholder="Site Content URL (leave blank for default site)">
+                        <input type="text" id="export_site_content_url" name="site_content_url" placeholder="Site Name (e.g., mysite — blank for Default)">
                     </div>
                 </div>
 
@@ -1651,7 +1654,7 @@
                         <input type="text" id="fav_host" name="server_host" placeholder="Tableau Server URL (e.g., https://your-server.com)" required>
                     </div>
                     <div class="form-row">
-                        <input type="text" id="fav_site" name="site_content_url" placeholder="Site Content URL (blank for Default)">
+                        <input type="text" id="fav_site" name="site_content_url" placeholder="Site Name (e.g., mysite — blank for Default)">
                     </div>
                     <div class="form-row">
                         <select id="fav_auth_method" name="auth_method" onchange="toggleAuthFields('fav')" required>
