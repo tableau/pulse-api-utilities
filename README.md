@@ -1,6 +1,6 @@
 # Tableau Pulse Utilities
 
-A comprehensive web application suite for managing Tableau Pulse with twelve powerful utilities, built with Python Flask and featuring a modern, responsive UI.
+A comprehensive web application suite for managing Tableau Pulse with thirteen powerful utilities, built with Python Flask and featuring a modern, responsive UI.
 
 ## 🚀 Available Utilities
 
@@ -85,6 +85,16 @@ Export all Pulse metric definitions to CSV for documentation or analysis
 - **🎨 Viz State Support**: Handles Viz State definitions appropriately (marks measure/filters as embedded)
 - **📥 Download CSV**: Tab-delimited CSV file with one row per definition
 - **🗄️ Datasource Names**: Automatically resolves datasource IDs to names
+
+### 13. 💾 Backup & Restore
+Back up a datasource and all its associated Pulse metric definitions to a ZIP file, and restore them to the same or a different Tableau Cloud site
+- **💾 Backup**: Downloads the datasource file (.tdsx) and all linked Pulse definitions into a single ZIP archive
+- **♻️ Restore**: Publishes the datasource to the target site and recreates all definitions, including allowed dimensions, granularities, representation options, and insight settings
+- **🔗 Correlation remapping**: Cross-definition correlation references are automatically remapped to the new definition IDs after restore
+- **📁 Project handling**: Restores to the original project if it exists; creates it automatically if not, or falls back to a timestamped `Restored_<YYYYMMDD_HHMMSS>` folder
+- **🔍 Flexible datasource identification**: Accepts datasource name or LUID (UUID from the Tableau Cloud info panel) — use the LUID to avoid ambiguity when multiple datasources share the same name
+
+> **Note**: Tested with Personal Access Token (PAT) authentication and LUID-based datasource identification only.
 
 ### 12. ⭐ Favorite Metrics
 Get a list of metrics marked as favorites by the authenticated user
@@ -366,6 +376,44 @@ hello-world-app/
    - Export a user's favorites list for documentation or migration
    - Verify favorites are set correctly after onboarding
 
+### 💾 Using Backup & Restore
+
+#### Creating a Backup
+1. **Site Connection**:
+   - Enter Tableau Server URL and site name
+   - Choose authentication method (PAT recommended)
+
+2. **Datasource Identification**:
+   - Enter the datasource name, or its LUID (UUID)
+   - To find the LUID: open the datasource in Tableau Cloud → click the **ⓘ info icon** → copy the ID field
+   - Use the LUID if multiple datasources share the same name
+
+3. **Execute**: Click "💾 Create Backup"
+
+   The tool will:
+   - Look up the datasource and download it as a `.tdsx` file
+   - Fetch all Pulse metric definitions linked to that datasource
+   - Package everything into a ZIP file for download
+
+#### Restoring a Backup
+1. **Site Connection**:
+   - Enter the destination Tableau Server URL and site name
+   - Provide authentication credentials
+
+2. **Target Project (Optional)**:
+   - Enter a project name to restore into — it will be created if it does not exist
+   - Leave blank to auto-create a `Restored_<YYYYMMDD_HHMMSS>` project
+
+3. **Upload**: Select the backup ZIP file and click "♻️ Restore Backup"
+
+   The tool will:
+   - Publish the datasource to the target project
+   - Recreate all Pulse definitions with full configuration (dimensions, granularities, insights, representation options)
+   - Remap cross-definition correlation references to the new definition IDs
+   - Display a link to the restored datasource
+
+> **Note**: Followers (metric subscriptions) are not included in the backup and must be re-added manually after restore.
+
 ### 📑 Using Export Definitions
 1. **Server Connection**:
    - Enter Tableau Server URL and API version
@@ -407,6 +455,8 @@ hello-world-app/
 - `POST /zero-follower-metrics` - Find and optionally delete metrics with zero followers
 - `POST /export-definitions` - Export all metric definitions to CSV
 - `POST /favorite-metrics` - Get the authenticated user's favorited metrics
+- `POST /backup` - Back up a datasource and its Pulse definitions to a ZIP file
+- `POST /restore` - Restore a backup ZIP to a Tableau site
 
 ## Customization
 
@@ -466,6 +516,7 @@ This application suite includes twelve powerful utilities for managing Tableau P
 10. **Remove All Followers** - Remove all followers from non-default metrics for a definition
 11. **Export Definitions** - Export all metric definitions to CSV for documentation
 12. **Favorite Metrics** - Get a list of metrics favorited by the authenticated user
+13. **Backup & Restore** - Back up a datasource and all its Pulse definitions to a ZIP, restore to any site
 
 ### Benefits of the Web Interface:
 - **🌐 No CLI Required**: Everything runs through the web browser
@@ -474,7 +525,7 @@ This application suite includes twelve powerful utilities for managing Tableau P
 - **🔒 Security**: Credentials are handled securely without persistent storage
 - **🚀 Enhanced Functionality**: Same power as the original CLI scripts with improved usability
 - **📱 Accessibility**: Works on any device with a web browser
-- **🏠 Unified Interface**: All twelve utilities in one convenient location
+- **🏠 Unified Interface**: All thirteen utilities in one convenient location
 
 ### Technical Features:
 - Modern Flask web framework
@@ -484,4 +535,4 @@ This application suite includes twelve powerful utilities for managing Tableau P
 - Beautiful, responsive UI with animations
 - Support for both JSON and XML API authentication methods
 
-Transform your Tableau Pulse management workflow with this powerful web application suite! 🚀📊👥🔄⚙️✅📊📈🔍📑⭐
+Transform your Tableau Pulse management workflow with this powerful web application suite! 🚀📊👥🔄⚙️✅📊📈🔍📑⭐💾

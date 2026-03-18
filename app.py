@@ -8,6 +8,8 @@ import copy
 import csv
 import io
 import os
+import zipfile
+import base64
 from urllib.parse import urlparse, quote
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
@@ -127,8 +129,12 @@ def create_pulse_definition(host, pulse_token, definition_payload):
 # ------------------------------
 # Build payload for destination site
 # ------------------------------
-def build_definition_payload(definition_a, datasource_id_b):
-    """Build definition payload for destination site"""
+def build_definition_payload(definition_a, datasource_id_b, id_remap=None):
+    """Build definition payload for destination site.
+
+    id_remap: optional dict mapping old definition IDs to new ones, used to
+    rewrite correlation_candidate_definition_ids after a restore.
+    """
     original_spec = definition_a.get("specification", {})
     spec = {}
 
@@ -154,21 +160,32 @@ def build_definition_payload(definition_a, datasource_id_b):
             clean_comp["index"] = int(clean_comp["index"])
         clean_comparisons.append(clean_comp)
 
+    # extension_options, representation_options, insights_options are top-level
+    # on the definition object, not inside specification
+    ext_opts = definition_a.get("extension_options", {})
+
+    # Remap correlation IDs to destination IDs; drop any not yet mapped
+    raw_corr_ids = ext_opts.get("correlation_candidate_definition_ids", [])
+    if id_remap is not None:
+        corr_ids = [id_remap[old] for old in raw_corr_ids if old in id_remap]
+    else:
+        corr_ids = []  # omit stale source IDs when no remap is available
+
     payload = {
         "name": definition_a["metadata"]["name"],
         "specification": spec,
         "extension_options": {
-            "allowed_dimensions": original_spec.get("extension_options", {}).get("allowed_dimensions", []),
-            "allowed_granularities": original_spec.get("extension_options", {}).get("allowed_granularities", []),
-            "offset_from_today": original_spec.get("extension_options", {}).get("offset_from_today", 0),
-            "correlation_candidate_definition_ids": original_spec.get("extension_options", {}).get("correlation_candidate_definition_ids", []),
-            "use_dynamic_offset": original_spec.get("extension_options", {}).get("use_dynamic_offset", False),
+            "allowed_dimensions": ext_opts.get("allowed_dimensions", []),
+            "allowed_granularities": ext_opts.get("allowed_granularities", []),
+            "offset_from_today": ext_opts.get("offset_from_today", 0),
+            "correlation_candidate_definition_ids": corr_ids,
+            "use_dynamic_offset": ext_opts.get("use_dynamic_offset", False),
         },
-        "representation_options": original_spec.get("representation_options", {"type": "NUMBER_FORMAT_TYPE_NUMBER", "sentiment_type": "SENTIMENT_TYPE_NONE"}),
-        "insights_options": original_spec.get("insights_options", {"show_insights": True, "settings":[]}),
+        "representation_options": definition_a.get("representation_options", {"type": "NUMBER_FORMAT_TYPE_NUMBER", "sentiment_type": "SENTIMENT_TYPE_NONE"}),
+        "insights_options": definition_a.get("insights_options", {"show_insights": True, "settings": []}),
         "comparisons": {"comparisons": clean_comparisons},
         "datasource_goals": definition_a.get("datasource_goals", []),
-        "related_links": definition_a.get("related_links", []),
+        "related_links": definition_a.get("metadata", {}).get("related_links", []),
         "certification": {"is_certified": False}
     }
 
@@ -180,20 +197,178 @@ def build_definition_payload(definition_a, datasource_id_b):
 def get_definitions_to_copy(host, token, datasource_id, choice):
     """Get definition IDs to copy based on choice"""
     if choice.lower() == "all":
-        url = f"{host}/api/-/pulse/definitions"
+        url = f"{host}/api/-/pulse/definitions?page_size=1000"
         headers = {"X-Tableau-Auth": token}
         r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         r.raise_for_status()
-        all_defs = r.json().get("definitions", [])
+        body = r.json()
+        all_defs = body.get("metric_definitions") or body.get("definitions") or []
         defs_for_ds = [
             d.get("metadata", {}).get("id")
             for d in all_defs
             if d.get("specification", {}).get("datasource", {}).get("id") == datasource_id
-               and d.get("metadata", {}).get("id")  # only include if ID exists
+               and d.get("metadata", {}).get("id")
         ]
         return defs_for_ds
     else:
         return [d.strip() for d in choice.split(",") if d.strip()]
+
+# ------------------------------
+# Backup / Restore helpers
+# ------------------------------
+
+def parse_tableau_datasource_url(input_str):
+    """Parse a Tableau browser URL and return server, site, and datasource ID.
+
+    Handles URLs like:
+    https://server/#/site/mysite/datasources/12345/connections
+    Returns a dict with keys: server_url, site_content_url, datasource_id
+    or None if the input is not a recognisable Tableau URL.
+    """
+    match = re.search(r'(https://[^/#]+)/#/site/([^/]+)/datasources/([^/]+)', input_str)
+    if match:
+        return {
+            'server_url': match.group(1),
+            'site_content_url': match.group(2),
+            'datasource_id': match.group(3)
+        }
+    return None
+
+def get_datasource_details_by_name(host, token, site_id, datasource_input):
+    """Get full datasource details by name, LUID, or browser URL.
+
+    Accepts:
+    - A plain datasource name (exact or case-insensitive match)
+    - A LUID (UUID format, e.g. ae82635e-246b-4a25-8c2b-f3b0d9d2440d) from the info panel
+    - A full Tableau browser URL (server and site are informational only; LUID is preferred)
+    """
+    headers = {"X-Tableau-Auth": token, "Accept": "application/json"}
+
+    # If input is a UUID (LUID), query the REST API directly — most reliable
+    uuid_pattern = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
+    if uuid_pattern.match(datasource_input.strip()):
+        r = requests.get(
+            f"{host}/api/{API_VERSION}/sites/{site_id}/datasources/{datasource_input.strip()}",
+            headers=headers, timeout=REQUEST_TIMEOUT
+        )
+        r.raise_for_status()
+        return r.json().get("datasource", {})
+
+    # If input looks like a browser URL, note that the numeric ID in the URL is NOT the LUID
+    parsed = parse_tableau_datasource_url(datasource_input)
+    if parsed:
+        raise ValueError(
+            "Browser URLs contain a numeric content ID, not the LUID used by the REST API. "
+            "Please use the datasource LUID instead: open the datasource in Tableau Cloud, "
+            "click the ⓘ info icon, and copy the ID shown there (UUID format)."
+        )
+
+    # Plain name lookup — fetch full list
+    r = requests.get(f"{host}/api/{API_VERSION}/sites/{site_id}/datasources",
+                     headers=headers, timeout=REQUEST_TIMEOUT)
+    r.raise_for_status()
+    ds_list = r.json().get("datasources", {}).get("datasource", [])
+
+    # Collect all matches (exact first, then case-insensitive)
+    exact = [ds for ds in ds_list if ds["name"] == datasource_input]
+    if len(exact) == 1:
+        return exact[0]
+    if len(exact) > 1:
+        dupes = ', '.join(f'"{d["name"]}" (project: {d.get("project", {}).get("name", "?")}, ID: {d["id"]})' for d in exact)
+        raise ValueError(
+            f"Multiple datasources named '{datasource_input}' found: {dupes}. "
+            f"Paste the browser URL instead to identify the exact one."
+        )
+
+    ci = [ds for ds in ds_list if ds["name"].lower() == datasource_input.lower()]
+    if len(ci) == 1:
+        return ci[0]
+    if len(ci) > 1:
+        dupes = ', '.join(f'"{d["name"]}" (project: {d.get("project", {}).get("name", "?")})' for d in ci)
+        raise ValueError(
+            f"Multiple datasources matched '{datasource_input}': {dupes}. "
+            f"Paste the browser URL instead to identify the exact one."
+        )
+
+    raise ValueError(
+        f"Datasource '{datasource_input}' not found. "
+        f"Available: {', '.join(d['name'] for d in ds_list[:20])}"
+    )
+
+def download_datasource_tdsx(host, token, site_id, datasource_id):
+    """Download a datasource file from Tableau Cloud/Server"""
+    url = f"{host}/api/{API_VERSION}/sites/{site_id}/datasources/{datasource_id}/content"
+    headers = {"X-Tableau-Auth": token}
+    r = requests.get(url, headers=headers, timeout=120)
+    r.raise_for_status()
+    return r.content
+
+def get_project_id_by_name(server_url, site_id, auth_token, project_name):
+    """Look up a project ID by name, with case-insensitive fallback"""
+    url = f"{server_url}/api/{API_VERSION}/sites/{site_id}/projects?pageSize=1000"
+    headers = {"X-Tableau-Auth": auth_token}
+    r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+    r.raise_for_status()
+    data = ET.fromstring(r.content)
+    ns = {'t': 'http://tableau.com/api'}
+    for project in data.findall('.//t:project', ns):
+        if project.get('name') == project_name:
+            return project.get('id')
+    for project in data.findall('.//t:project', ns):
+        if project.get('name', '').lower().strip() == project_name.lower().strip():
+            return project.get('id')
+    all_names = [p.get('name') for p in data.findall('.//t:project', ns)]
+    raise ValueError(f"Project '{project_name}' not found. Available: {', '.join(all_names[:20])}")
+
+def get_or_create_project(server_url, site_id, auth_token, project_name):
+    """Return (project_id, created) — looks up project by name, creates it if not found."""
+    try:
+        return get_project_id_by_name(server_url, site_id, auth_token, project_name), False
+    except ValueError:
+        url = f"{server_url}/api/{API_VERSION}/sites/{site_id}/projects"
+        headers = {"X-Tableau-Auth": auth_token, "Content-Type": "application/json", "Accept": "application/json"}
+        r = requests.post(url, json={"project": {"name": project_name}}, headers=headers, timeout=REQUEST_TIMEOUT)
+        r.raise_for_status()
+        return r.json()["project"]["id"], True
+
+def publish_datasource_file(server_url, site_id, auth_token, project_id, datasource_name, file_data, filename):
+    """Publish a datasource file (.tdsx/.tds/.hyper) to Tableau Cloud/Server"""
+    publish_url = f"{server_url}/api/{API_VERSION}/sites/{site_id}/datasources?overwrite=true"
+    xml_payload = f"""<?xml version='1.0' encoding='UTF-8'?>
+<tsRequest>
+    <datasource name='{datasource_name}'>
+        <project id='{project_id}' />
+    </datasource>
+</tsRequest>"""
+    boundary = '----WebKitFormBoundary7MA4YWxkTrZu0gW'
+    body_parts = []
+    body_parts.append(f'--{boundary}'.encode())
+    body_parts.append(b'Content-Disposition: form-data; name="request_payload"')
+    body_parts.append(b'Content-Type: text/xml')
+    body_parts.append(b'')
+    body_parts.append(xml_payload.encode('utf-8'))
+    body_parts.append(f'--{boundary}'.encode())
+    body_parts.append(f'Content-Disposition: form-data; name="tableau_datasource"; filename="{filename}"'.encode())
+    body_parts.append(b'Content-Type: application/octet-stream')
+    body_parts.append(b'')
+    body_parts.append(file_data)
+    body_parts.append(f'--{boundary}--'.encode())
+    body = b'\r\n'.join(body_parts)
+    headers = {
+        'X-Tableau-Auth': auth_token,
+        'Content-Type': f'multipart/mixed; boundary={boundary}'
+    }
+    r = requests.post(publish_url, data=body, headers=headers, verify=True, timeout=120)
+    if r.status_code in [200, 201]:
+        response_data = ET.fromstring(r.content)
+        ns = {'t': 'http://tableau.com/api'}
+        datasource = response_data.find('.//t:datasource', ns)
+        if datasource is not None:
+            ds_id = datasource.get('id')
+            web_url_elem = datasource.find('.//t:webpageUrl', ns)
+            web_url = web_url_elem.text if web_url_elem is not None else None
+            return {'success': True, 'datasource_id': ds_id, 'web_url': web_url}
+    return {'success': False, 'error': f'Publish failed: {r.status_code} - {r.text}'}
 
 # ------------------------------
 # Bulk Manage Followers Functions
@@ -4802,6 +4977,234 @@ def favorite_metrics():
             'error': f'Unexpected error: {str(e)}',
             'traceback': tb_str
         })
+
+
+@app.route('/backup', methods=['POST'])
+def backup_pulse():
+    """Create a backup ZIP of a datasource and all its Pulse definitions"""
+    try:
+        data = request.get_json()
+        results = []
+
+        server_url = data.get('server_url', '').strip().rstrip('/')
+        site_content_url = data.get('site_content_url', '').strip()
+        datasource_name = data.get('datasource_name', '').strip()
+        auth_method = data.get('auth_method', '').strip()
+        username = data.get('username', '').strip()
+        password = data.get('password', '').strip()
+        pat_name = data.get('pat_name', '').strip()
+        pat_token = data.get('pat_token', '').strip()
+
+        # If datasource field contains a full URL, extract server/site from it
+        parsed_ds_url = parse_tableau_datasource_url(datasource_name)
+        if parsed_ds_url:
+            if not server_url:
+                server_url = parsed_ds_url['server_url']
+            if not site_content_url:
+                site_content_url = parsed_ds_url['site_content_url']
+            results.append({'success': True, 'message': f'🔗 Parsed datasource URL — server: {server_url}, site: {site_content_url or "(default)"}'})
+
+        if not all([server_url, datasource_name, auth_method]):
+            return jsonify({'success': False, 'error': 'server_url, datasource_name, and auth_method are required'})
+
+        # Authenticate
+        results.append({'success': True, 'message': '🔐 Authenticating...'})
+        try:
+            if auth_method == 'pat':
+                token, site_id = sign_in_rest(server_url, site_content_url, pat_name=pat_name, pat_secret=pat_token)
+            else:
+                token, site_id = sign_in_rest(server_url, site_content_url, username=username, password=password)
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Authentication failed: {str(e)}'})
+        results.append({'success': True, 'message': '✅ Authenticated'})
+
+        # Get datasource details
+        results.append({'success': True, 'message': f'🔍 Looking up datasource...'})
+        try:
+            ds = get_datasource_details_by_name(server_url, token, site_id, datasource_name)
+        except Exception as e:
+            force_sign_out(server_url, token)
+            return jsonify({'success': False, 'error': str(e), 'results': results})
+        ds_id = ds['id']
+        ds_project = ds.get('project', {}).get('name', 'Default')
+        datasource_name = ds['name']  # use the actual name from Tableau, not the user's input
+        results.append({'success': True, 'message': f'✅ Found datasource "{datasource_name}" in project: {ds_project}'})
+
+        # Download datasource file
+        results.append({'success': True, 'message': '⬇️ Downloading datasource file...'})
+        try:
+            tdsx_data = download_datasource_tdsx(server_url, token, site_id, ds_id)
+        except Exception as e:
+            force_sign_out(server_url, token)
+            return jsonify({'success': False, 'error': f'Datasource download failed: {str(e)}', 'results': results})
+        results.append({'success': True, 'message': f'✅ Downloaded datasource ({len(tdsx_data):,} bytes)'})
+
+        # Fetch all Pulse definitions for this datasource
+        results.append({'success': True, 'message': '📋 Fetching Pulse definitions...'})
+        definition_ids = get_definitions_to_copy(server_url, token, ds_id, 'all')
+        definitions = []
+        for def_id in definition_ids:
+            try:
+                defn = get_pulse_definition(server_url, def_id, token)
+                definitions.append(defn)
+            except Exception as e:
+                results.append({'success': False, 'message': f'  ⚠️ Could not fetch definition {def_id}: {str(e)}'})
+        results.append({'success': True, 'message': f'✅ Fetched {len(definitions)} definition(s)'})
+
+        # Package into ZIP
+        results.append({'success': True, 'message': '📦 Creating backup package...'})
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            metadata = {
+                'source_server': server_url,
+                'source_site': site_content_url,
+                'datasource_name': datasource_name,
+                'datasource_id': ds_id,
+                'project': ds_project,
+                'definition_count': len(definitions),
+                'created_at': timestamp
+            }
+            zf.writestr('metadata.json', json.dumps(metadata, indent=2))
+            zf.writestr('definitions.json', json.dumps(definitions, indent=2))
+            zf.writestr(f'{datasource_name}.tdsx', tdsx_data)
+        zip_buffer.seek(0)
+        zip_b64 = base64.b64encode(zip_buffer.read()).decode('utf-8')
+        zip_filename = f'pulse_backup_{datasource_name}_{timestamp}.zip'
+
+        force_sign_out(server_url, token)
+        results.append({'success': True, 'message': '✅ Backup complete!'})
+
+        return jsonify({
+            'success': True,
+            'results': results,
+            'zip_b64': zip_b64,
+            'zip_filename': zip_filename,
+            'summary': f'Backed up {len(definitions)} definition(s) and datasource "{datasource_name}" (project: {ds_project})',
+            'project': ds_project,
+            'definition_count': len(definitions)
+        })
+
+    except Exception as e:
+        tb_str = traceback.format_exc()
+        return jsonify({'success': False, 'error': str(e), 'traceback': tb_str})
+
+
+@app.route('/restore', methods=['POST'])
+def restore_pulse():
+    """Restore a Pulse backup ZIP to a Tableau site"""
+    try:
+        results = []
+
+        server_url = request.form.get('server_url', '').strip().rstrip('/')
+        site_content_url = request.form.get('site_content_url', '').strip()
+        auth_method = request.form.get('auth_method', '').strip()
+        target_project = request.form.get('target_project', '').strip()
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '').strip()
+        pat_name = request.form.get('pat_name', '').strip()
+        pat_token = request.form.get('pat_token', '').strip()
+
+        if 'backup_file' not in request.files:
+            return jsonify({'success': False, 'error': 'No backup file uploaded'})
+        if not all([server_url, auth_method]):
+            return jsonify({'success': False, 'error': 'server_url and auth_method are required'})
+
+        # Read and parse ZIP
+        zip_data = request.files['backup_file'].read()
+        try:
+            with zipfile.ZipFile(io.BytesIO(zip_data), 'r') as zf:
+                metadata = json.loads(zf.read('metadata.json'))
+                definitions = json.loads(zf.read('definitions.json'))
+                ds_filename = f"{metadata['datasource_name']}.tdsx"
+                tdsx_data = zf.read(ds_filename)
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Failed to read backup file: {str(e)}'})
+
+        original_project = metadata.get('project', 'Default')
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        restore_project = target_project if target_project else f"Restored_{timestamp}"
+        datasource_name = metadata['datasource_name']
+        definition_count = len(definitions)
+
+        results.append({'success': True, 'message': f'📦 Loaded backup: {definition_count} definition(s), datasource "{datasource_name}"'})
+        results.append({'success': True, 'message': f'📁 Original project: {original_project}'})
+        results.append({'success': True, 'message': f'📁 Restoring to project: {restore_project}'})
+
+        # Authenticate
+        results.append({'success': True, 'message': '🔐 Authenticating...'})
+        try:
+            if auth_method == 'pat':
+                token, site_id = sign_in_rest(server_url, site_content_url, pat_name=pat_name, pat_secret=pat_token)
+            else:
+                token, site_id = sign_in_rest(server_url, site_content_url, username=username, password=password)
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Authentication failed: {str(e)}', 'results': results})
+        results.append({'success': True, 'message': '✅ Authenticated'})
+
+        # Resolve or create project
+        results.append({'success': True, 'message': f'🔍 Resolving project "{restore_project}"...'})
+        try:
+            project_id, was_created = get_or_create_project(server_url, site_id, token, restore_project)
+        except Exception as e:
+            force_sign_out(server_url, token)
+            return jsonify({'success': False, 'error': str(e), 'results': results})
+        if was_created:
+            results.append({'success': True, 'message': f'✅ Created new project: {restore_project}'})
+        else:
+            results.append({'success': True, 'message': f'✅ Found project: {restore_project}'})
+
+        # Publish datasource
+        results.append({'success': True, 'message': f'⬆️ Publishing datasource "{datasource_name}"...'})
+        pub_result = publish_datasource_file(server_url, site_id, token, project_id, datasource_name, tdsx_data, ds_filename)
+        if not pub_result['success']:
+            force_sign_out(server_url, token)
+            return jsonify({'success': False, 'error': f"Datasource publish failed: {pub_result['error']}", 'results': results})
+        new_ds_id = pub_result['datasource_id']
+        ds_web_url = pub_result.get('web_url')
+        results.append({'success': True, 'message': f'✅ Datasource published'})
+
+        # Recreate definitions — non-correlated first so ID remapping works in one pass
+        results.append({'success': True, 'message': f'📋 Recreating {definition_count} definition(s)...'})
+        sorted_defs = sorted(
+            definitions,
+            key=lambda d: len(d.get('extension_options', {}).get('correlation_candidate_definition_ids', []))
+        )
+        id_remap = {}  # old definition ID -> new definition ID
+        created = 0
+        failed = 0
+        for defn in sorted_defs:
+            old_id = defn.get('metadata', {}).get('id')
+            def_name = defn.get('metadata', {}).get('name', '?')
+            try:
+                payload = build_definition_payload(defn, new_ds_id, id_remap=id_remap)
+                response = create_pulse_definition(server_url, token, payload)
+                new_id = (response.get('metric_definition') or response.get('definition') or {}).get('metadata', {}).get('id')
+                if old_id and new_id:
+                    id_remap[old_id] = new_id
+                created += 1
+                results.append({'success': True, 'message': f'  ✅ Created: {def_name}'})
+            except Exception as e:
+                failed += 1
+                results.append({'success': False, 'message': f'  ⚠️ Failed: {def_name} — {str(e)}'})
+
+        force_sign_out(server_url, token)
+        results.append({'success': True, 'message': f'🎉 Restore complete! {created} created' + (f', {failed} failed' if failed else '')})
+
+        return jsonify({
+            'success': True,
+            'results': results,
+            'summary': f'Restored {created} of {definition_count} definitions to project "{restore_project}"',
+            'datasource_web_url': ds_web_url,
+            'datasource_name': datasource_name,
+            'project': restore_project,
+            'created': created,
+            'failed': failed
+        })
+
+    except Exception as e:
+        tb_str = traceback.format_exc()
+        return jsonify({'success': False, 'error': str(e), 'traceback': tb_str})
 
 
 if __name__ == '__main__':

@@ -509,6 +509,7 @@
             <button class="tab-button" onclick="showTab('remove-all-followers')">🧹 Remove All Followers</button>
             <button class="tab-button" onclick="showTab('export-definitions')">📑 Export Definitions</button>
             <button class="tab-button" onclick="showTab('favorite-metrics')">⭐ Favorite Metrics</button>
+            <button class="tab-button" onclick="showTab('backup-restore')">💾 Backup & Restore</button>
         </div>
 
         <!-- Home Tab - Utility Selector -->
@@ -658,6 +659,18 @@
                             <span>⭐ Your favorited metrics</span>
                             <span>📊 Definition details included</span>
                             <span>📥 Export to CSV</span>
+                        </div>
+                        <button class="utility-button">Get Started</button>
+                    </div>
+
+                    <div class="utility-card" onclick="showTab('backup-restore')">
+                        <div class="utility-icon">💾</div>
+                        <h3>Backup &amp; Restore</h3>
+                        <p>Back up a datasource and all its Pulse definitions to a ZIP file, then restore them to any site</p>
+                        <div class="utility-features">
+                            <span>💾 Downloads datasource + definitions</span>
+                            <span>♻️ Restore to same or different site</span>
+                            <span>📁 Optional target project</span>
                         </div>
                         <button class="utility-button">Get Started</button>
                     </div>
@@ -1686,6 +1699,108 @@
                     <button type="button" class="button secondary" onclick="showTab('home')">← Back to Home</button>
                 </div>
             </form>
+        </div>
+
+        <!-- Backup & Restore Tab -->
+        <div id="backup-restore" class="tab-content">
+            <div class="form-header">
+                <h2>💾 Backup &amp; Restore</h2>
+                <p>Back up a datasource and all its Pulse definitions to a ZIP file, or restore a previous backup to any site</p>
+                <button type="button" class="button secondary back-button" onclick="showTab('home')">← Back to Home</button>
+            </div>
+
+            <!-- Backup Section -->
+            <div class="form-section">
+                <h3>⬇️ Backup</h3>
+                <p style="margin-bottom:12px; color:#555;">Downloads a ZIP containing the datasource file and all Pulse definitions linked to it.</p>
+                <form id="backupForm" onsubmit="submitBackup(event)">
+                    <div class="form-row">
+                        <input type="text" id="backup_host" name="server_url" placeholder="Tableau Server URL (e.g., https://your-server.com)" required>
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="backup_site" name="site_content_url" placeholder="Site Name (e.g., mysite — blank for Default)">
+                        <small>💡 The site name from the URL: tableau.com/#/site/<strong>mysite</strong>/...</small>
+                    </div>
+                    <div class="form-row">
+                        <select id="backup_auth_method" name="auth_method" onchange="toggleAuthFields('backup')" required>
+                            <option value="">Select Authentication Method</option>
+                            <option value="password">Username/Password</option>
+                            <option value="pat">Personal Access Token</option>
+                        </select>
+                    </div>
+                    <div id="backup_user_auth" class="auth-fields" style="display: none;">
+                        <div class="form-row">
+                            <input type="text" id="backup_username" name="username" placeholder="Username">
+                        </div>
+                        <div class="form-row">
+                            <input type="password" id="backup_password" name="password" placeholder="Password">
+                        </div>
+                    </div>
+                    <div id="backup_pat_auth" class="auth-fields" style="display: none;">
+                        <div class="form-row">
+                            <input type="text" id="backup_pat_name" name="pat_name" placeholder="PAT Name">
+                        </div>
+                        <div class="form-row">
+                            <input type="password" id="backup_pat_token" name="pat_token" placeholder="PAT Secret">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="backup_datasource" name="datasource_name" placeholder="Datasource Name or LUID (UUID)" required>
+                        <small>💡 Enter the datasource name, or its LUID: open the datasource in Tableau Cloud → click the <strong>ⓘ info icon</strong> → copy the ID (UUID format). Use the LUID if two datasources share the same name.</small>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="button">💾 Create Backup</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Restore Section -->
+            <div class="form-section" style="margin-top: 30px;">
+                <h3>⬆️ Restore</h3>
+                <p style="margin-bottom:12px; color:#555;">Upload a backup ZIP to restore the datasource and all Pulse definitions to a site.</p>
+                <form id="restoreForm" onsubmit="submitRestore(event)">
+                    <div class="form-row">
+                        <input type="text" id="restore_host" name="server_url" placeholder="Tableau Server URL (e.g., https://your-server.com)" required>
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="restore_site" name="site_content_url" placeholder="Site Name (e.g., mysite — blank for Default)">
+                        <small>💡 The site name from the URL: tableau.com/#/site/<strong>mysite</strong>/...</small>
+                    </div>
+                    <div class="form-row">
+                        <select id="restore_auth_method" name="auth_method" onchange="toggleAuthFields('restore')" required>
+                            <option value="">Select Authentication Method</option>
+                            <option value="password">Username/Password</option>
+                            <option value="pat">Personal Access Token</option>
+                        </select>
+                    </div>
+                    <div id="restore_user_auth" class="auth-fields" style="display: none;">
+                        <div class="form-row">
+                            <input type="text" id="restore_username" name="username" placeholder="Username">
+                        </div>
+                        <div class="form-row">
+                            <input type="password" id="restore_password" name="password" placeholder="Password">
+                        </div>
+                    </div>
+                    <div id="restore_pat_auth" class="auth-fields" style="display: none;">
+                        <div class="form-row">
+                            <input type="text" id="restore_pat_name" name="pat_name" placeholder="PAT Name">
+                        </div>
+                        <div class="form-row">
+                            <input type="password" id="restore_pat_token" name="pat_token" placeholder="PAT Secret">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="restore_target_project" name="target_project" placeholder="Target Project (optional — defaults to original project from backup)">
+                    </div>
+                    <div class="form-row">
+                        <label style="font-weight:500; margin-bottom:6px; display:block;">Backup ZIP file</label>
+                        <input type="file" id="restore_backup_file" name="backup_file" accept=".zip" required>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="button">♻️ Restore Backup</button>
+                    </div>
+                </form>
+            </div>
         </div>
 
         <!-- Results section -->
@@ -3097,6 +3212,92 @@
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+        }
+
+        async function submitBackup(event) {
+            event.preventDefault();
+            const formData = new FormData(event.target);
+            const data = Object.fromEntries(formData.entries());
+            clearPreviousResults();
+            showProgress('💾 Starting backup...', '💾 Backup Results');
+            try {
+                const response = await fetch('/backup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await safeJsonParse(response);
+                if (!result.success) {
+                    showError(result.error || 'Unknown error', '❌ Backup failed');
+                    return;
+                }
+                // Show progress messages
+                const progressDiv = document.getElementById('progress');
+                let html = '';
+                (result.results || []).forEach(item => {
+                    const cls = item.success ? 'success' : 'error';
+                    html += `<div class="result-item ${cls}">${item.message}</div>`;
+                });
+                if (result.summary) {
+                    html += `<div class="result-item"><strong>📊 Summary:</strong> ${result.summary}</div>`;
+                }
+                // Trigger ZIP download
+                if (result.zip_b64) {
+                    const bytes = Uint8Array.from(atob(result.zip_b64), c => c.charCodeAt(0));
+                    const blob = new Blob([bytes], { type: 'application/zip' });
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = result.zip_filename;
+                    link.style.display = 'none';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    html += `<div class="result-item success">📥 Downloaded: <strong>${result.zip_filename}</strong></div>`;
+                }
+                document.getElementById('copyResults').innerHTML = html;
+                document.getElementById('resultsTitle').textContent = '💾 Backup Complete';
+            } catch (error) {
+                showError('Failed to communicate with server: ' + error.message, '❌ Backup failed');
+            }
+        }
+
+        async function submitRestore(event) {
+            event.preventDefault();
+            const formData = new FormData(event.target);
+            clearPreviousResults();
+            showProgress('♻️ Starting restore...', '♻️ Restore Results');
+            try {
+                const response = await fetch('/restore', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await safeJsonParse(response);
+                if (!result.success) {
+                    showError(result.error || 'Unknown error', '❌ Restore failed');
+                    return;
+                }
+                let html = '';
+                (result.results || []).forEach(item => {
+                    const cls = item.success ? 'success' : 'error';
+                    html += `<div class="result-item ${cls}">${item.message}</div>`;
+                });
+                if (result.summary) {
+                    html += `<div class="result-item"><strong>📊 Summary:</strong> ${result.summary}</div>`;
+                }
+                // Show datasource link
+                if (result.datasource_web_url) {
+                    html += `
+                        <div class="result-item success" style="margin-top:12px;">
+                            <strong>🗄️ Datasource restored to project: ${result.project}</strong><br>
+                            <a href="${result.datasource_web_url}" target="_blank" rel="noopener noreferrer"
+                               style="color:#0066cc;">🔗 Open "${result.datasource_name}" in Tableau</a>
+                        </div>`;
+                }
+                document.getElementById('copyResults').innerHTML = html;
+                document.getElementById('resultsTitle').textContent = '♻️ Restore Complete';
+            } catch (error) {
+                showError('Failed to communicate with server: ' + error.message, '❌ Restore failed');
+            }
         }
 
         // Reset form and return to home
