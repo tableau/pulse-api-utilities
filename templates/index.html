@@ -1742,8 +1742,8 @@
                         </div>
                     </div>
                     <div class="form-row">
-                        <input type="text" id="backup_datasource" name="datasource_name" placeholder="Datasource Name or Tableau URL" required>
-                        <small>💡 Enter the datasource name, or paste the browser URL: tableau.com/#/site/mysite/datasources/<strong>12345</strong>/connections</small>
+                        <input type="text" id="backup_datasource" name="datasource_name" placeholder="Datasource Name or LUID (UUID)" required>
+                        <small>💡 Enter the datasource name, or its LUID: open the datasource in Tableau Cloud → click the <strong>ⓘ info icon</strong> → copy the ID (UUID format). Use the LUID if two datasources share the same name.</small>
                     </div>
                     <div class="form-actions">
                         <button type="submit" class="button">💾 Create Backup</button>
