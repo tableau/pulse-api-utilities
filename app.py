@@ -5404,16 +5404,26 @@ def validate_custom_calendar():
                         errors.append(
                             f"Row {row}: WeekOfYear does not increment correctly — prev {prev['week_of_year']}, curr {curr['week_of_year']} (date: {curr['date']})"
                         )
-                # When week changes (and it's not year rollover to week 1), prev week must be 7 days
-                if curr['week_of_year'] != 1:
-                    # Count days in prev week
+                # Only mid-year weeks must be exactly 7 days.
+                # The first and last week of a fiscal year can be shorter because they
+                # share days with the adjacent year (e.g. Week 53 = 2 days, next year's
+                # Week 1 = 5 days; together they form a complete 7-day week).
+                is_year_rollover = curr['week_of_year'] == 1 and curr['year'] == prev['year'] + 1
+                max_week_in_prev_year = max(
+                    e['week_of_year'] for e in parsed if e['year'] == prev['year']
+                )
+                prev_is_boundary_week = (
+                    prev['week_of_year'] == 1 or                        # first week of year
+                    prev['week_of_year'] == max_week_in_prev_year        # last week of year
+                )
+                if not is_year_rollover and not prev_is_boundary_week:
                     week_day_count = sum(
                         1 for e in parsed
                         if e['year'] == prev['year'] and e['week_of_year'] == prev['week_of_year']
                     )
                     if week_day_count != days_in_week:
                         errors.append(
-                            f"Row {row}: Week {prev['week_of_year']} of year {prev['year']} has {week_day_count} day(s) instead of 7 — weeks must be exactly 7 days (date: {curr['date']})"
+                            f"Row {row}: Week {prev['week_of_year']} of year {prev['year']} has {week_day_count} day(s) instead of 7 — only the first and last week of a year may be shorter (date: {curr['date']})"
                         )
 
             # MonthOfYear must stay same, increment by 1, or reset to 1 on new year
@@ -5457,22 +5467,27 @@ def validate_custom_calendar():
                         f"Row {row}: Year {prev['year']} ended with QuarterOfYear={prev['quarter_of_year']} — must end at quarter 4 (date: {curr['date']})"
                     )
 
-        # Check last year is complete (must end at quarter 4)
-        last = parsed[-1]
-        if last['quarter_of_year'] != 4:
-            errors.append(
-                f"Row {last['row']}: Calendar ends mid-year — last entry is "
-                f"{last['date']} (Year={last['year']}, Quarter={last['quarter_of_year']}, "
-                f"Month={last['month_of_year']}, DayOfYear={last['day_of_year']}) — "
-                f"year {last['year']} must complete through quarter 4"
-            )
-
         # Check calendar extends through today
         today = datetime.today().date()
+        last = parsed[-1]
         if last['date'] < today:
             errors.append(
                 f"Calendar ends on {last['date']} but today is {today} — "
                 f"the calendar must extend through the current date"
+            )
+
+        # Check at least 2 complete fiscal years of historical data exist before today
+        complete_past_years = []
+        for yr in sorted({e['year'] for e in parsed}):
+            yr_entries = [e for e in parsed if e['year'] == yr]
+            last_day_of_yr = yr_entries[-1]['date']
+            if last_day_of_yr < today:
+                complete_past_years.append(yr)
+        if len(complete_past_years) < 2:
+            errors.append(
+                f"Not enough historical data — only {len(complete_past_years)} complete fiscal year(s) "
+                f"exist before today ({today}): {complete_past_years if complete_past_years else 'none'}. "
+                f"Pulse requires at least 2 complete years of historical data"
             )
 
         # Summary stats
