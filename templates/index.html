@@ -510,6 +510,7 @@
             <button class="tab-button" onclick="showTab('export-definitions')">📑 Export Definitions</button>
             <button class="tab-button" onclick="showTab('favorite-metrics')">⭐ Favorite Metrics</button>
             <button class="tab-button" onclick="showTab('backup-restore')">💾 Backup & Restore</button>
+            <button class="tab-button" onclick="showTab('custom-calendar-validator')">📅 Calendar Validator</button>
         </div>
 
         <!-- Home Tab - Utility Selector -->
@@ -671,6 +672,18 @@
                             <span>💾 Downloads datasource + definitions</span>
                             <span>♻️ Restore to same or different site</span>
                             <span>📁 Optional target project</span>
+                        </div>
+                        <button class="utility-button">Get Started</button>
+                    </div>
+
+                    <div class="utility-card" onclick="showTab('custom-calendar-validator')">
+                        <div class="utility-icon">📅</div>
+                        <h3>Custom Calendar Validator</h3>
+                        <p>Upload a custom calendar CSV and get a full report of every validation error based on Pulse custom calendar rules</p>
+                        <div class="utility-features">
+                            <span>📄 CSV upload</span>
+                            <span>🔍 Comprehensive rule validation</span>
+                            <span>📋 Detailed error report</span>
                         </div>
                         <button class="utility-button">Get Started</button>
                     </div>
@@ -1804,6 +1817,87 @@
         </div>
 
         <!-- Results section -->
+        <!-- Custom Calendar Validator Tab -->
+        <div id="custom-calendar-validator" class="tab-content">
+            <div class="form-header">
+                <h2>📅 Custom Calendar Validator</h2>
+                <p>Upload a custom calendar CSV and get a detailed report of every validation issue based on Tableau Pulse custom calendar rules</p>
+                <button type="button" class="button secondary back-button" onclick="showTab('home')">← Back to Home</button>
+            </div>
+
+            <form id="calendarValidatorForm" onsubmit="submitCalendarValidator(event)">
+                <div class="form-section">
+                    <h3>📄 Upload Calendar CSV</h3>
+                    <div class="form-row">
+                        <input type="file" id="calendar_csv_file" name="csv_file" accept=".csv" required>
+                        <small>Upload your custom calendar CSV file. Dates must be in YYYY-MM-DD, M/D/YYYY, or M/D/YY format.</small>
+                    </div>
+                </div>
+
+                <div class="form-section" id="calendarColMappingSection" style="display:none;">
+                    <h3>🗂️ Column Mapping</h3>
+                    <p style="color:#6b7280; margin-bottom:16px; font-size:0.95rem;">Map each required field to its column in your CSV. Columns are auto-detected from the file header.</p>
+                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:12px;">
+                        <div class="form-row">
+                            <label style="font-size:0.85rem; font-weight:500; color:#374151; display:block; margin-bottom:4px;">Reference Date</label>
+                            <select id="col_date" name="col_date">
+                                <option value="">— select column —</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <label style="font-size:0.85rem; font-weight:500; color:#374151; display:block; margin-bottom:4px;">Day of Year</label>
+                            <select id="col_day" name="col_day">
+                                <option value="">— select column —</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <label style="font-size:0.85rem; font-weight:500; color:#374151; display:block; margin-bottom:4px;">Week of Year</label>
+                            <select id="col_week" name="col_week">
+                                <option value="">— select column —</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <label style="font-size:0.85rem; font-weight:500; color:#374151; display:block; margin-bottom:4px;">Month of Year</label>
+                            <select id="col_month" name="col_month">
+                                <option value="">— select column —</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <label style="font-size:0.85rem; font-weight:500; color:#374151; display:block; margin-bottom:4px;">Month Name</label>
+                            <select id="col_month_name" name="col_month_name">
+                                <option value="">— select column —</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <label style="font-size:0.85rem; font-weight:500; color:#374151; display:block; margin-bottom:4px;">Quarter of Year</label>
+                            <select id="col_quarter" name="col_quarter">
+                                <option value="">— select column —</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <label style="font-size:0.85rem; font-weight:500; color:#374151; display:block; margin-bottom:4px;">Year</label>
+                            <select id="col_year" name="col_year">
+                                <option value="">— select column —</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="button">🔍 Validate Calendar</button>
+                    <button type="button" class="button secondary" onclick="showTab('home')">Cancel</button>
+                </div>
+            </form>
+
+            <div id="calendarValidatorResults" style="display:none; margin-top:24px;">
+                <div id="calendarValidatorSummary" style="padding:20px; border-radius:8px; margin-bottom:16px;"></div>
+                <div id="calendarValidatorErrors" style="display:none;">
+                    <h3 style="color:#dc2626; margin-bottom:12px;">❌ Validation Errors</h3>
+                    <div id="calendarValidatorErrorList" style="background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:16px; max-height:500px; overflow-y:auto; font-family:'Monaco','Menlo','Ubuntu Mono',monospace; font-size:0.85rem; line-height:1.6;"></div>
+                </div>
+            </div>
+        </div>
+
         <div id="results" class="results-section" style="display: none;">
             <h3 id="resultsTitle">📊 Results</h3>
             <div id="progress" class="progress-container"></div>
@@ -3318,6 +3412,111 @@
             
             // Return to home
             showTab('home');
+        }
+
+        // Default column names to auto-select when the header matches
+        const CALENDAR_COL_DEFAULTS = {
+            col_date:       ['date', 'ref date', 'reference date'],
+            col_day:        ['day of year', 'dayofyear', 'day'],
+            col_week:       ['week of year', 'weekofyear', 'week'],
+            col_month:      ['month of year', 'monthofyear', 'month'],
+            col_month_name: ['month name', 'monthname'],
+            col_quarter:    ['quarter of year', 'quarterofyear', 'quarter'],
+            col_year:       ['year'],
+        };
+
+        document.getElementById('calendar_csv_file').addEventListener('change', function () {
+            const file = this.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                // Read only the first line to extract headers
+                const firstLine = e.target.result.split('\n')[0];
+                // Handle quoted CSV headers
+                const headers = firstLine.split(',').map(h => h.replace(/^"|"$/g, '').trim());
+
+                const selectIds = ['col_date', 'col_day', 'col_week', 'col_month', 'col_month_name', 'col_quarter', 'col_year'];
+                selectIds.forEach(id => {
+                    const sel = document.getElementById(id);
+                    // Rebuild options
+                    sel.innerHTML = '<option value="">— select column —</option>';
+                    headers.forEach(h => {
+                        const opt = document.createElement('option');
+                        opt.value = h;
+                        opt.textContent = h;
+                        sel.appendChild(opt);
+                    });
+                    // Auto-select if header matches a default
+                    const defaults = CALENDAR_COL_DEFAULTS[id] || [];
+                    const match = headers.find(h => defaults.includes(h.toLowerCase()));
+                    if (match) sel.value = match;
+                });
+
+                document.getElementById('calendarColMappingSection').style.display = 'block';
+            };
+            reader.readAsText(file);
+        });
+
+        async function submitCalendarValidator(event) {
+            event.preventDefault();
+            const resultsDiv = document.getElementById('calendarValidatorResults');
+            const summaryDiv = document.getElementById('calendarValidatorSummary');
+            const errorsSection = document.getElementById('calendarValidatorErrors');
+            const errorList = document.getElementById('calendarValidatorErrorList');
+
+            summaryDiv.innerHTML = '<span style="color:#6b7280;">⏳ Validating...</span>';
+            summaryDiv.style.background = '#f3f4f6';
+            summaryDiv.style.border = '1px solid #e5e7eb';
+            errorsSection.style.display = 'none';
+            resultsDiv.style.display = 'block';
+
+            try {
+                const form = document.getElementById('calendarValidatorForm');
+                const formData = new FormData(form);
+
+                const response = await fetch('/validate-custom-calendar', {method: 'POST', body: formData});
+                const result = await safeJsonParse(response);
+
+                if (!result.success && result.error) {
+                    summaryDiv.innerHTML = `<strong style="color:#dc2626;">❌ Error:</strong> ${result.error}`;
+                    summaryDiv.style.background = '#fef2f2';
+                    summaryDiv.style.border = '1px solid #fecaca';
+                    return;
+                }
+
+                const errors = result.errors || [];
+                const years = result.years || [];
+                const rowCount = result.row_count || 0;
+
+                if (result.is_valid) {
+                    summaryDiv.innerHTML = `
+                        <strong style="color:#16a34a;">✅ Calendar is valid!</strong><br><br>
+                        <strong>Rows processed:</strong> ${rowCount}<br>
+                        <strong>Date range:</strong> ${result.date_range_start} → ${result.date_range_end}<br>
+                        <strong>Custom calendar years:</strong> ${years.join(', ')}
+                    `;
+                    summaryDiv.style.background = '#f0fdf4';
+                    summaryDiv.style.border = '1px solid #bbf7d0';
+                    errorsSection.style.display = 'none';
+                } else {
+                    summaryDiv.innerHTML = `
+                        <strong style="color:#dc2626;">❌ ${errors.length} validation error(s) found</strong><br><br>
+                        <strong>Rows processed:</strong> ${rowCount}
+                        ${result.date_range_start ? `<br><strong>Date range:</strong> ${result.date_range_start} → ${result.date_range_end}` : ''}
+                        ${years.length ? `<br><strong>Custom calendar years:</strong> ${years.join(', ')}` : ''}
+                    `;
+                    summaryDiv.style.background = '#fef2f2';
+                    summaryDiv.style.border = '1px solid #fecaca';
+
+                    errorList.innerHTML = errors.map(e => `<div style="padding:4px 0; border-bottom:1px solid #fecaca;">⚠️ ${e}</div>`).join('');
+                    errorsSection.style.display = 'block';
+                }
+            } catch (err) {
+                summaryDiv.innerHTML = `<strong style="color:#dc2626;">❌ Failed to communicate with server:</strong> ${err.message}`;
+                summaryDiv.style.background = '#fef2f2';
+                summaryDiv.style.border = '1px solid #fecaca';
+            }
         }
 
         // Test API connection (original function)

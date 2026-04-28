@@ -1,6 +1,6 @@
 # Tableau Pulse Utilities
 
-A comprehensive web application suite for managing Tableau Pulse with thirteen powerful utilities, built with Python Flask and featuring a modern, responsive UI.
+A comprehensive web application suite for managing Tableau Pulse with fourteen powerful utilities, built with Python Flask and featuring a modern, responsive UI.
 
 ## 🚀 Available Utilities
 
@@ -95,6 +95,23 @@ Back up a datasource and all its associated Pulse metric definitions to a ZIP fi
 - **🔍 Flexible datasource identification**: Accepts datasource name or LUID (UUID from the Tableau Cloud info panel) — use the LUID to avoid ambiguity when multiple datasources share the same name
 
 > **Note**: Tested with Personal Access Token (PAT) authentication and LUID-based datasource identification only.
+
+### 14. 📅 Custom Calendar Validator
+Validate a Tableau Pulse custom calendar CSV file against all Pulse custom calendar rules before uploading
+- **📄 CSV upload**: Drag and drop or browse for any CSV file
+- **🗂️ Auto-detected columns**: Headers are read from the file and presented as dropdowns — no manual column name entry required; common default names are auto-selected
+- **🔍 Comprehensive validation**: Checks every rule enforced by the Pulse backend, including:
+  - All required columns present
+  - No gaps in Gregorian dates, no duplicate dates
+  - DayOfYear increments by exactly 1 (resets to 1 at new year)
+  - WeekOfYear increments by 1 and all non-final weeks are exactly 7 days
+  - MonthOfYear increments by 1
+  - QuarterOfYear is 1–4, only changes when a new month starts, increments by 1
+  - New year must start with all period fields (DOY/WOY/MOY/QOY) = 1; prior year must end at Q4
+  - Month names are non-empty, consistent within each month, and unique across months
+  - Calendar must not end mid-year (final year must reach Q4)
+  - Calendar must extend through today's date
+- **📋 Detailed error report**: Every violation is reported with the row number and exact date so issues are easy to locate and fix
 
 ### 12. ⭐ Favorite Metrics
 Get a list of metrics marked as favorites by the authenticated user
@@ -376,6 +393,32 @@ hello-world-app/
    - Export a user's favorites list for documentation or migration
    - Verify favorites are set correctly after onboarding
 
+### 📅 Using Custom Calendar Validator
+1. **Upload your CSV**: Click the file input and select your custom calendar CSV file
+2. **Map columns**: Column dropdowns appear automatically, pre-selecting any columns whose names match the Pulse defaults (`Date`, `Day of Year`, `Week of Year`, `Month of Year`, `Month Name`, `Quarter`, `Year`). If your CSV uses different names (e.g. `JDATE`, `JWEEK`), select the correct column from each dropdown.
+3. **Validate**: Click "🔍 Validate Calendar"
+
+   The tool will:
+   - Parse every row and check all field types
+   - Validate sequential consistency across all rows (dates, day/week/month/quarter/year increments)
+   - Check month name uniqueness and consistency
+   - Verify the calendar covers a complete final year (ends at Q4)
+   - Verify the calendar extends through today's date
+   - Report every error with its row number and Gregorian date
+
+   **Column mapping defaults** (used when no column is explicitly selected):
+   | Field | Default column name |
+   |---|---|
+   | Reference Date | `Date` |
+   | Day of Year | `Day of Year` |
+   | Week of Year | `Week of Year` |
+   | Month of Year | `Month of Year` |
+   | Month Name | `Month Name` |
+   | Quarter of Year | `Quarter` |
+   | Year | `Year` |
+
+   **Supported date formats**: `YYYY-MM-DD`, `M/D/YYYY`, `M/D/YY`
+
 ### 💾 Using Backup & Restore
 
 #### Creating a Backup
@@ -457,6 +500,7 @@ hello-world-app/
 - `POST /favorite-metrics` - Get the authenticated user's favorited metrics
 - `POST /backup` - Back up a datasource and its Pulse definitions to a ZIP file
 - `POST /restore` - Restore a backup ZIP to a Tableau site
+- `POST /validate-custom-calendar` - Validate a custom calendar CSV against all Pulse custom calendar rules
 
 ## Customization
 
@@ -517,6 +561,7 @@ This application suite includes twelve powerful utilities for managing Tableau P
 11. **Export Definitions** - Export all metric definitions to CSV for documentation
 12. **Favorite Metrics** - Get a list of metrics favorited by the authenticated user
 13. **Backup & Restore** - Back up a datasource and all its Pulse definitions to a ZIP, restore to any site
+14. **Custom Calendar Validator** - Validate a custom calendar CSV against all Pulse backend rules before uploading
 
 ### Benefits of the Web Interface:
 - **🌐 No CLI Required**: Everything runs through the web browser
@@ -525,7 +570,7 @@ This application suite includes twelve powerful utilities for managing Tableau P
 - **🔒 Security**: Credentials are handled securely without persistent storage
 - **🚀 Enhanced Functionality**: Same power as the original CLI scripts with improved usability
 - **📱 Accessibility**: Works on any device with a web browser
-- **🏠 Unified Interface**: All thirteen utilities in one convenient location
+- **🏠 Unified Interface**: All fourteen utilities in one convenient location
 
 ### Technical Features:
 - Modern Flask web framework
@@ -535,4 +580,4 @@ This application suite includes twelve powerful utilities for managing Tableau P
 - Beautiful, responsive UI with animations
 - Support for both JSON and XML API authentication methods
 
-Transform your Tableau Pulse management workflow with this powerful web application suite! 🚀📊👥🔄⚙️✅📊📈🔍📑⭐💾
+Transform your Tableau Pulse management workflow with this powerful web application suite! 🚀📊👥🔄⚙️✅📊📈🔍📑⭐💾📅
