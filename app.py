@@ -5207,6 +5207,311 @@ def restore_pulse():
         return jsonify({'success': False, 'error': str(e), 'traceback': tb_str})
 
 
+@app.route('/validate-custom-calendar', methods=['POST'])
+def validate_custom_calendar():
+    """Validate a custom calendar CSV file against Pulse custom calendar rules."""
+    try:
+        if 'csv_file' not in request.files:
+            return jsonify({'success': False, 'error': 'No CSV file provided'})
+
+        csv_file = request.files['csv_file']
+        if csv_file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'})
+
+        col_date = request.form.get('col_date', 'Date').strip()
+        col_day = request.form.get('col_day', 'Day of Year').strip()
+        col_week = request.form.get('col_week', 'Week of Year').strip()
+        col_month = request.form.get('col_month', 'Month of Year').strip()
+        col_month_name = request.form.get('col_month_name', 'Month Name').strip()
+        col_quarter = request.form.get('col_quarter', 'Quarter').strip()
+        col_year = request.form.get('col_year', 'Year').strip()
+
+        content = csv_file.read().decode('utf-8-sig')
+        reader = csv.DictReader(io.StringIO(content))
+        rows = list(reader)
+
+        errors = []
+        warnings = []
+
+        # Check required columns exist
+        if not rows:
+            return jsonify({'success': False, 'error': 'CSV file is empty'})
+
+        required_cols = {
+            col_date: 'Reference Date',
+            col_day: 'Day of Year',
+            col_week: 'Week of Year',
+            col_month: 'Month of Year',
+            col_month_name: 'Month Name',
+            col_quarter: 'Quarter of Year',
+            col_year: 'Year',
+        }
+        actual_cols = set(reader.fieldnames or [])
+        for col, label in required_cols.items():
+            if col not in actual_cols:
+                errors.append(f"Missing required column '{col}' ({label})")
+        if errors:
+            return jsonify({'success': False, 'errors': errors, 'warnings': warnings, 'row_count': 0})
+
+        # Parse all rows
+        SUPPORTED_DATE_FORMATS = ['%Y-%m-%d', '%m/%d/%Y', '%m/%d/%y']
+        parsed = []
+        for i, row in enumerate(rows, start=2):
+            row_errors = []
+            date_val = row.get(col_date, '').strip()
+            parsed_date = None
+            for fmt in SUPPORTED_DATE_FORMATS:
+                try:
+                    parsed_date = datetime.strptime(date_val, fmt).date()
+                    break
+                except ValueError:
+                    continue
+            if parsed_date is None:
+                row_errors.append(f"Row {i}: Invalid date '{date_val}' in '{col_date}' — expected YYYY-MM-DD, M/D/YYYY, or M/D/YY")
+
+            def parse_int(field_name, row=row, i=i, row_errors=row_errors):
+                val = row.get(field_name, '').strip()
+                if val == '':
+                    row_errors.append(f"Row {i}: Missing value for '{field_name}'")
+                    return None
+                try:
+                    return int(float(val))
+                except (ValueError, TypeError):
+                    row_errors.append(f"Row {i}: Non-numeric value '{val}' in '{field_name}'")
+                    return None
+
+            day_of_year = parse_int(col_day)
+            week_of_year = parse_int(col_week)
+            month_of_year = parse_int(col_month)
+            quarter_of_year = parse_int(col_quarter)
+            year_val = parse_int(col_year)
+            month_name = row.get(col_month_name, '').strip()
+            if month_name == '':
+                row_errors.append(f"Row {i}: Empty month name in '{col_month_name}'")
+
+            errors.extend(row_errors)
+            if row_errors:
+                parsed.append(None)
+            else:
+                parsed.append({
+                    'row': i,
+                    'date': parsed_date,
+                    'day_of_year': day_of_year,
+                    'week_of_year': week_of_year,
+                    'month_of_year': month_of_year,
+                    'month_name': month_name,
+                    'quarter_of_year': quarter_of_year,
+                    'year': year_val,
+                })
+
+        # Stop early if there were parse errors — deeper validation won't be reliable
+        if errors:
+            return jsonify({
+                'success': False,
+                'errors': errors,
+                'warnings': warnings,
+                'row_count': len(rows),
+            })
+
+        # Sort by Gregorian date ascending for sequential validation
+        parsed.sort(key=lambda r: r['date'])
+
+        # Build month-name map (monthOfYear -> name) for consistency checks
+        month_name_map = {}
+        for entry in parsed:
+            mon = entry['month_of_year']
+            name = entry['month_name']
+            if mon not in month_name_map:
+                month_name_map[mon] = name
+            elif month_name_map[mon] != name:
+                errors.append(
+                    f"Row {entry['row']}: Month name inconsistency — month {mon} is '{name}' "
+                    f"but was previously '{month_name_map[mon]}'"
+                )
+
+        # Check month names are unique across different months
+        name_to_month = {}
+        for mon, name in month_name_map.items():
+            if name in name_to_month:
+                errors.append(
+                    f"Month name '{name}' is used for both month {name_to_month[name]} and month {mon} — each month must have a unique name"
+                )
+            else:
+                name_to_month[name] = mon
+
+        # Validate initial entry
+        first = parsed[0]
+        if first['day_of_year'] < 1 or first['week_of_year'] < 1 or first['month_of_year'] < 1 or first['quarter_of_year'] < 1 or first['year'] < 1:
+            errors.append(f"Row {first['row']}: First entry has non-positive value — all fields must be >= 1")
+
+        if first['month_of_year'] < first['quarter_of_year']:
+            errors.append(f"Row {first['row']}: Initial entry has MonthOfYear ({first['month_of_year']}) < QuarterOfYear ({first['quarter_of_year']}) — not enough months to support this quarter")
+
+        if first['quarter_of_year'] > 4:
+            errors.append(f"Row {first['row']}: Initial QuarterOfYear ({first['quarter_of_year']}) > 4 — quarters must be 1–4")
+
+        # Validate WeekOfYear for initial entry
+        day_of_year_init = first['day_of_year']
+        days_in_week = 7
+        min_week = (day_of_year_init - 1) // days_in_week + 1
+        max_week = min_week if (day_of_year_init % days_in_week == 1) else min_week + 1
+        if first['week_of_year'] not in (min_week, max_week):
+            errors.append(
+                f"Row {first['row']}: Initial WeekOfYear ({first['week_of_year']}) is invalid for DayOfYear {day_of_year_init} — valid values are {min_week} or {max_week}"
+            )
+
+        from datetime import timedelta
+
+        # Build date-lookup set for gap detection
+        date_set = {entry['date'] for entry in parsed}
+        prev_date = None
+        for entry in parsed:
+            d = entry['date']
+            if prev_date is not None:
+                expected_next = prev_date + timedelta(days=1)
+                if d != expected_next:
+                    errors.append(
+                        f"Row {entry['row']}: Gap in Gregorian dates — expected {expected_next} after {prev_date}, got {d}"
+                    )
+            prev_date = d
+
+        # Check for duplicate dates
+        seen_dates = {}
+        for entry in parsed:
+            d = entry['date']
+            if d in seen_dates:
+                errors.append(f"Row {entry['row']}: Duplicate date {d} (also on row {seen_dates[d]})")
+            else:
+                seen_dates[d] = entry['row']
+
+        # Sequential entry-pair validation
+        for i in range(1, len(parsed)):
+            prev = parsed[i - 1]
+            curr = parsed[i]
+            row = curr['row']
+
+            # DayOfYear must increment by 1, or reset to 1 on new year
+            if curr['day_of_year'] != prev['day_of_year'] + 1:
+                if not (curr['day_of_year'] == 1 and curr['year'] == prev['year'] + 1):
+                    errors.append(
+                        f"Row {row}: DayOfYear does not increment correctly — prev {prev['day_of_year']}, curr {curr['day_of_year']} (date: {curr['date']})"
+                    )
+
+            # WeekOfYear must stay same, increment by 1, or reset to 1 on new year
+            if curr['week_of_year'] != prev['week_of_year']:
+                if curr['week_of_year'] != prev['week_of_year'] + 1:
+                    if not (curr['week_of_year'] == 1 and curr['year'] == prev['year'] + 1):
+                        errors.append(
+                            f"Row {row}: WeekOfYear does not increment correctly — prev {prev['week_of_year']}, curr {curr['week_of_year']} (date: {curr['date']})"
+                        )
+                # Only mid-year weeks must be exactly 7 days.
+                # The first and last week of a fiscal year can be shorter because they
+                # share days with the adjacent year (e.g. Week 53 = 2 days, next year's
+                # Week 1 = 5 days; together they form a complete 7-day week).
+                is_year_rollover = curr['week_of_year'] == 1 and curr['year'] == prev['year'] + 1
+                max_week_in_prev_year = max(
+                    e['week_of_year'] for e in parsed if e['year'] == prev['year']
+                )
+                prev_is_boundary_week = (
+                    prev['week_of_year'] == 1 or                        # first week of year
+                    prev['week_of_year'] == max_week_in_prev_year        # last week of year
+                )
+                if not is_year_rollover and not prev_is_boundary_week:
+                    week_day_count = sum(
+                        1 for e in parsed
+                        if e['year'] == prev['year'] and e['week_of_year'] == prev['week_of_year']
+                    )
+                    if week_day_count != days_in_week:
+                        errors.append(
+                            f"Row {row}: Week {prev['week_of_year']} of year {prev['year']} has {week_day_count} day(s) instead of 7 — only the first and last week of a year may be shorter (date: {curr['date']})"
+                        )
+
+            # MonthOfYear must stay same, increment by 1, or reset to 1 on new year
+            if curr['month_of_year'] != prev['month_of_year']:
+                if curr['month_of_year'] != prev['month_of_year'] + 1:
+                    if not (curr['month_of_year'] == 1 and curr['year'] == prev['year'] + 1):
+                        errors.append(
+                            f"Row {row}: MonthOfYear does not increment correctly — prev {prev['month_of_year']}, curr {curr['month_of_year']} (date: {curr['date']})"
+                        )
+
+            # QuarterOfYear validation
+            if curr['quarter_of_year'] != prev['quarter_of_year']:
+                # Quarter change must coincide with a month change
+                if curr['month_of_year'] == prev['month_of_year']:
+                    errors.append(
+                        f"Row {row}: Quarter changed without a new month starting (date: {curr['date']})"
+                    )
+                if curr['quarter_of_year'] != prev['quarter_of_year'] + 1:
+                    if not (curr['quarter_of_year'] == 1 and curr['year'] == prev['year'] + 1):
+                        errors.append(
+                            f"Row {row}: QuarterOfYear does not increment correctly — prev {prev['quarter_of_year']}, curr {curr['quarter_of_year']} (date: {curr['date']})"
+                        )
+                if curr['quarter_of_year'] > 4:
+                    errors.append(f"Row {row}: QuarterOfYear ({curr['quarter_of_year']}) > 4 — too many quarters in year {curr['year']} (date: {curr['date']})")
+
+            # Year validation
+            if curr['year'] != prev['year']:
+                if curr['year'] != prev['year'] + 1:
+                    errors.append(
+                        f"Row {row}: Year does not increment correctly — prev {prev['year']}, curr {curr['year']} (date: {curr['date']})"
+                    )
+                # New year must start all period fields at 1
+                if curr['day_of_year'] != 1 or curr['week_of_year'] != 1 or curr['month_of_year'] != 1 or curr['quarter_of_year'] != 1:
+                    errors.append(
+                        f"Row {row}: New year must start with DayOfYear=1, WeekOfYear=1, MonthOfYear=1, QuarterOfYear=1 "
+                        f"(got {curr['day_of_year']}, {curr['week_of_year']}, {curr['month_of_year']}, {curr['quarter_of_year']}) (date: {curr['date']})"
+                    )
+                # Previous year must have ended with QuarterOfYear=4
+                if prev['quarter_of_year'] != 4:
+                    errors.append(
+                        f"Row {row}: Year {prev['year']} ended with QuarterOfYear={prev['quarter_of_year']} — must end at quarter 4 (date: {curr['date']})"
+                    )
+
+        # Check calendar extends through today
+        today = datetime.today().date()
+        last = parsed[-1]
+        if last['date'] < today:
+            errors.append(
+                f"Calendar ends on {last['date']} but today is {today} — "
+                f"the calendar must extend through the current date"
+            )
+
+        # Check at least 2 complete fiscal years of historical data exist before today
+        complete_past_years = []
+        for yr in sorted({e['year'] for e in parsed}):
+            yr_entries = [e for e in parsed if e['year'] == yr]
+            last_day_of_yr = yr_entries[-1]['date']
+            if last_day_of_yr < today:
+                complete_past_years.append(yr)
+        if len(complete_past_years) < 2:
+            errors.append(
+                f"Not enough historical data — only {len(complete_past_years)} complete fiscal year(s) "
+                f"exist before today ({today}): {complete_past_years if complete_past_years else 'none'}. "
+                f"Pulse requires at least 2 complete years of historical data"
+            )
+
+        # Summary stats
+        years = sorted({e['year'] for e in parsed})
+        date_range_start = parsed[0]['date']
+        date_range_end = parsed[-1]['date']
+
+        is_valid = len(errors) == 0
+        return jsonify({
+            'success': True,
+            'is_valid': is_valid,
+            'errors': errors,
+            'warnings': warnings,
+            'row_count': len(rows),
+            'years': years,
+            'date_range_start': str(date_range_start),
+            'date_range_end': str(date_range_end),
+        })
+
+    except Exception as e:
+        tb_str = traceback.format_exc()
+        return jsonify({'success': False, 'error': str(e), 'traceback': tb_str})
+
+
 if __name__ == '__main__':
     # Run the Flask development server
     # Use PORT environment variable for Heroku, default to 3000 for local development
