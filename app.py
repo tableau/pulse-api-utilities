@@ -1947,13 +1947,16 @@ def copy_definitions():
                     if follow_self:
                         try:
                             new_def_id = new_definition["definition"]["metadata"]["id"]
-                            default_metric = create_metric_for_swap(dest_host, new_def_id, {}, token_b)
-                            default_metric_id = default_metric.get("metric", {}).get("id")
+                            metrics = get_metrics_for_definition_swap(dest_host, new_def_id, token_b)
+                            default_metric = next((m for m in metrics if m.get("is_default")), None)
+                            if not default_metric and metrics:
+                                default_metric = metrics[0]
+                            default_metric_id = (default_metric or {}).get("id") or (default_metric or {}).get("metadata", {}).get("id")
                             if default_metric_id:
                                 add_follower_for_swap(dest_host, default_metric_id, dest_user_id, token_b)
                                 results.append({'success': True, 'message': f'  ↳ 👤 You are now following: {def_name}'})
                             else:
-                                results.append({'success': False, 'message': f'  ↳ ⚠️ Could not retrieve default metric for: {def_name}'})
+                                results.append({'success': False, 'message': f'  ↳ ⚠️ Could not find default metric for: {def_name}'})
                         except Exception as e:
                             results.append({'success': False, 'message': f'  ↳ ⚠️ Follow failed for {def_name}: {str(e)}'})
                 else:
