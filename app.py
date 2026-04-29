@@ -56,7 +56,7 @@ def sign_in_rest(host, site_content_url, username=None, password=None, pat_name=
     r = requests.post(url, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
     data = r.json()["credentials"]
-    return data["token"], data["site"]["id"]
+    return data["token"], data["site"]["id"], data["user"]["id"]
 
 def force_sign_out(host, token=None):
     """Sign out from Tableau Server"""
@@ -1837,6 +1837,7 @@ def copy_definitions():
         dest_datasource = data.get('dest_datasource', '').strip()
         
         definition_ids = data.get('definition_ids', '').strip() or 'all'
+        follow_self = data.get('follow_self', False)
         
         # Validate required fields
         required_fields = [source_host, source_content_url, source_datasource, 
@@ -1854,13 +1855,13 @@ def copy_definitions():
                 source_password = data.get('source_password', '').strip()
                 if not source_username or not source_password:
                     return jsonify({'success': False, 'error': 'Source username and password are required'})
-                token_a, site_id_a = sign_in_rest(source_host, source_content_url, source_username, source_password)
+                token_a, site_id_a, _ = sign_in_rest(source_host, source_content_url, source_username, source_password)
             elif source_auth_method == 'p':
                 source_pat_name = data.get('source_pat_name', '').strip()
                 source_pat_secret = data.get('source_pat_secret', '').strip()
                 if not source_pat_name or not source_pat_secret:
                     return jsonify({'success': False, 'error': 'Source PAT name and secret are required'})
-                token_a, site_id_a = sign_in_rest(source_host, source_content_url, 
+                token_a, site_id_a, _ = sign_in_rest(source_host, source_content_url,
                                                  pat_name=source_pat_name, pat_secret=source_pat_secret)
             else:
                 return jsonify({'success': False, 'error': 'Invalid source authentication method'})
@@ -1876,13 +1877,13 @@ def copy_definitions():
                 dest_password = data.get('dest_password', '').strip()
                 if not dest_username or not dest_password:
                     return jsonify({'success': False, 'error': 'Destination username and password are required'})
-                token_b, site_id_b = sign_in_rest(dest_host, dest_content_url, dest_username, dest_password)
+                token_b, site_id_b, dest_user_id = sign_in_rest(dest_host, dest_content_url, dest_username, dest_password)
             elif dest_auth_method == 'p':
                 dest_pat_name = data.get('dest_pat_name', '').strip()
                 dest_pat_secret = data.get('dest_pat_secret', '').strip()
                 if not dest_pat_name or not dest_pat_secret:
                     return jsonify({'success': False, 'error': 'Destination PAT name and secret are required'})
-                token_b, site_id_b = sign_in_rest(dest_host, dest_content_url, 
+                token_b, site_id_b, dest_user_id = sign_in_rest(dest_host, dest_content_url,
                                                  pat_name=dest_pat_name, pat_secret=dest_pat_secret)
             else:
                 return jsonify({'success': False, 'error': 'Invalid destination authentication method'})
@@ -1942,6 +1943,19 @@ def copy_definitions():
                 if new_definition and "definition" in new_definition and "metadata" in new_definition["definition"]:
                     results.append({'success': True, 'message': f'✅ Created: {def_name}'})
                     copied_count += 1
+
+                    if follow_self:
+                        try:
+                            new_def_id = new_definition["definition"]["metadata"]["id"]
+                            default_metric = create_metric_for_swap(dest_host, new_def_id, {}, token_b)
+                            default_metric_id = default_metric.get("metric", {}).get("id")
+                            if default_metric_id:
+                                add_follower_for_swap(dest_host, default_metric_id, dest_user_id, token_b)
+                                results.append({'success': True, 'message': f'  ↳ 👤 You are now following: {def_name}'})
+                            else:
+                                results.append({'success': False, 'message': f'  ↳ ⚠️ Could not retrieve default metric for: {def_name}'})
+                        except Exception as e:
+                            results.append({'success': False, 'message': f'  ↳ ⚠️ Follow failed for {def_name}: {str(e)}'})
                 else:
                     results.append({'success': False, 'message': f'❌ Failed to create: {def_name}'})
                     failed_count += 1
@@ -2199,13 +2213,13 @@ def swap_datasources():
                 password = data.get('password', '').strip()
                 if not username or not password:
                     return jsonify({'success': False, 'error': 'Username and password are required'})
-                token, site_id = sign_in_rest(server_host, site_content_url, username=username, password=password)
+                token, site_id, _ = sign_in_rest(server_host, site_content_url, username=username, password=password)
             elif auth_method == 'pat':
                 pat_name = data.get('pat_name', '').strip()
                 pat_secret = data.get('pat_secret', '').strip()
                 if not pat_name or not pat_secret:
                     return jsonify({'success': False, 'error': 'PAT name and secret are required'})
-                token, site_id = sign_in_rest(server_host, site_content_url, 
+                token, site_id, _ = sign_in_rest(server_host, site_content_url,
                                              pat_name=pat_name, pat_secret=pat_secret)
             else:
                 return jsonify({'success': False, 'error': 'Invalid authentication method'})
@@ -5011,9 +5025,9 @@ def backup_pulse():
         results.append({'success': True, 'message': '🔐 Authenticating...'})
         try:
             if auth_method == 'pat':
-                token, site_id = sign_in_rest(server_url, site_content_url, pat_name=pat_name, pat_secret=pat_token)
+                token, site_id, _ = sign_in_rest(server_url, site_content_url, pat_name=pat_name, pat_secret=pat_token)
             else:
-                token, site_id = sign_in_rest(server_url, site_content_url, username=username, password=password)
+                token, site_id, _ = sign_in_rest(server_url, site_content_url, username=username, password=password)
         except Exception as e:
             return jsonify({'success': False, 'error': f'Authentication failed: {str(e)}'})
         results.append({'success': True, 'message': '✅ Authenticated'})
@@ -5135,9 +5149,9 @@ def restore_pulse():
         results.append({'success': True, 'message': '🔐 Authenticating...'})
         try:
             if auth_method == 'pat':
-                token, site_id = sign_in_rest(server_url, site_content_url, pat_name=pat_name, pat_secret=pat_token)
+                token, site_id, _ = sign_in_rest(server_url, site_content_url, pat_name=pat_name, pat_secret=pat_token)
             else:
-                token, site_id = sign_in_rest(server_url, site_content_url, username=username, password=password)
+                token, site_id, _ = sign_in_rest(server_url, site_content_url, username=username, password=password)
         except Exception as e:
             return jsonify({'success': False, 'error': f'Authentication failed: {str(e)}', 'results': results})
         results.append({'success': True, 'message': '✅ Authenticated'})

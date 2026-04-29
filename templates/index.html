@@ -776,6 +776,12 @@
                         <input type="text" id="definition_ids" name="definition_ids" placeholder='Definition IDs (comma-separated) or "all" for all definitions'>
                         <small>Enter specific definition IDs separated by commas, or type "all" to copy all definitions from the source datasource</small>
                     </div>
+                    <div class="form-row" style="margin-top:12px;">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="follow_self" name="follow_self">
+                            <span class="checkbox-text">👤 Follow copied definitions — add me as a follower to each copied metric on the destination site</span>
+                        </label>
+                    </div>
                 </div>
 
                 <div class="form-actions">
@@ -1944,7 +1950,8 @@
             
             const formData = new FormData(event.target);
             const data = Object.fromEntries(formData.entries());
-            
+            data.follow_self = document.getElementById('follow_self').checked;
+
             // Clear previous results and show new progress
             clearPreviousResults();
             showProgress('🚀 Starting copy process...', '📊 Copy Results');
