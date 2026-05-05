@@ -1552,9 +1552,10 @@ def tcm_login(tcm_uri, pat_token):
         
         try:
             response_json = response.json()
-            print(f"DEBUG: TCM login response body: {json.dumps(response_json, indent=2)}")
+            redacted = {k: ('***REDACTED***' if k == 'sessionToken' else v) for k, v in response_json.items()}
+            print(f"DEBUG: TCM login response body: {json.dumps(redacted, indent=2)}")
         except:
-            print(f"DEBUG: TCM login response body (not JSON): {response.text}")
+            print(f"DEBUG: TCM login response body (not JSON): [redacted]")
         
         if response.status_code == 200:
             response_data = response.json()
@@ -3072,6 +3073,87 @@ def bulk_create_scoped_metrics():
             'traceback': tb_str,
             'error_type': type(e).__name__
         })
+
+@app.route('/delete-scoped-metrics', methods=['POST'])
+def delete_scoped_metrics():
+    """Delete all non-default scoped metrics for a given definition."""
+    try:
+        data = request.get_json()
+
+        server_url = data.get('server_url', '').strip().rstrip('/')
+        api_version = data.get('api_version', '3.26').strip()
+        site_content_url = data.get('site_content_url', '').strip()
+        auth_method = data.get('auth_method', '').strip()
+        source_metric_id = data.get('definition_id', '').strip()  # reusing field — passed as source metric ID
+        username = data.get('username', '')
+        password = data.get('password', '')
+        pat_name = data.get('pat_name', '')
+        pat_token = data.get('pat_token', '')
+
+        if not all([server_url, auth_method, source_metric_id]):
+            return jsonify({'success': False, 'error': 'server_url, auth_method, and definition_id are required'})
+
+        results = []
+        results.append({'success': True, 'message': '🔐 Authenticating with Tableau Server...'})
+
+        auth_result = authenticate_tableau_rest(
+            server_url, api_version, site_content_url, auth_method,
+            username, password, pat_name, pat_token
+        )
+        if not auth_result['success']:
+            return jsonify({'success': False, 'error': f"Authentication failed: {auth_result['error']}"})
+
+        auth_token = auth_result['auth_token']
+        results.append({'success': True, 'message': '✅ Authentication successful!'})
+
+        # Resolve source metric ID -> definition ID
+        results.append({'success': True, 'message': f'🔍 Resolving definition from metric {source_metric_id}...'})
+        metric_result = get_metric_details_rest(server_url, auth_token, source_metric_id)
+        if not metric_result['success']:
+            return jsonify({'success': False, 'error': f"Could not resolve metric: {metric_result['error']}"})
+        definition_id = metric_result['metric'].get('definition_id')
+        if not definition_id:
+            return jsonify({'success': False, 'error': 'Could not determine definition_id from the given metric'})
+        results.append({'success': True, 'message': f'📋 Definition ID: {definition_id}'})
+        results.append({'success': True, 'message': f'🔍 Fetching all metrics for definition...'})
+
+        metrics_result = get_all_metrics_for_definition_rest(server_url, auth_token, definition_id, exclude_metrics_without_followers=False)
+        if not metrics_result['success']:
+            return jsonify({'success': False, 'error': f"Failed to fetch metrics: {metrics_result['error']}"})
+
+        all_metrics = metrics_result['metrics']
+        scoped = [m for m in all_metrics if not m.get('is_default', False)]
+        results.append({'success': True, 'message': f'📊 Found {len(all_metrics)} total metric(s), {len(scoped)} scoped (non-default) to delete'})
+
+        if not scoped:
+            results.append({'success': True, 'message': '✅ Nothing to delete — no scoped metrics found'})
+            return jsonify({'success': True, 'results': results})
+
+        deleted = 0
+        failed = 0
+        for metric in scoped:
+            metric_id = metric.get('id') or metric.get('metadata', {}).get('id')
+            name = metric.get('name') or metric.get('metadata', {}).get('name') or metric_id
+            if not metric_id:
+                results.append({'success': False, 'message': f'⚠️ Skipped metric with no ID: {name}'})
+                failed += 1
+                continue
+            del_result = delete_metric_rest(server_url, auth_token, metric_id)
+            if del_result['success']:
+                results.append({'success': True, 'message': f'🗑️ Deleted: {name} ({metric_id})'})
+                deleted += 1
+            else:
+                results.append({'success': False, 'message': f'❌ Failed to delete {name} ({metric_id}): {del_result.get("error", "unknown error")}'})
+                failed += 1
+
+        results.append({'success': True, 'message': f'✅ Done — {deleted} deleted, {failed} failed'})
+        return jsonify({'success': True, 'results': results})
+
+    except Exception as e:
+        tb_str = traceback.format_exc()
+        print(f"ERROR in delete_scoped_metrics: {tb_str}")
+        return jsonify({'success': False, 'error': f'Unexpected error: {str(e)}'})
+
 
 @app.route('/pulse-analytics', methods=['POST'])
 def pulse_analytics():
