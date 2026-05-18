@@ -3169,12 +3169,6 @@ def pulse_analytics():
     pat_name = data.get('pat_name')
     pat_token = data.get('pat_token')
 
-    if not all([server_url, auth_method]):
-        return jsonify({
-            'success': False,
-            'error': 'Missing required fields: server_url and auth_method are required'
-        })
-
     def generate():
         def emit(msg, success=True):
             yield json.dumps({'type': 'progress', 'success': success, 'message': msg}) + '\n'
@@ -3183,6 +3177,10 @@ def pulse_analytics():
             yield json.dumps({'type': 'error', 'success': False, 'error': msg}) + '\n'
 
         try:
+            if not all([server_url, auth_method]):
+                yield from emit_error('Missing required fields: server_url and auth_method are required')
+                return
+
             yield from emit('🚀 Starting Pulse Analytics...')
             yield from emit('🔐 Authenticating with Tableau Server...')
 

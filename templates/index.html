@@ -2659,7 +2659,7 @@
                             copyResults.innerHTML += `<div class="result-item ${msg.success ? 'success' : 'error'}">${icon} ${msg.message}</div>`;
                             progressDiv.innerHTML = `<div class="loading"></div><span style="margin-left:10px;">${msg.message}</span>`;
                             document.getElementById('results').style.display = 'block';
-                        } else if (msg.type === 'error') {
+                        } else if (msg.type === 'error' || (msg.success === false && msg.error)) {
                             showError(msg.error || 'Unknown error occurred', '❌ Analytics generation failed', msg);
                             return;
                         } else if (msg.type === 'complete') {
