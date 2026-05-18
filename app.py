@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 import requests
 import json
 import xml.etree.ElementTree as ET
@@ -3076,333 +3076,229 @@ def bulk_create_scoped_metrics():
 @app.route('/pulse-analytics', methods=['POST'])
 def pulse_analytics():
     """Generate analytics about Pulse metrics, followers, definitions, and datasources"""
-    try:
-        data = request.json
-        results = []
-        
-        # Extract form data
-        server_url = data.get('server_url', '').rstrip('/')
-        api_version = data.get('api_version', '3.26')
-        site_content_url = data.get('site_content_url', '')
-        auth_method = data.get('auth_method')
-        
-        # Authentication data
-        username = data.get('username')
-        password = data.get('password')
-        pat_name = data.get('pat_name')
-        pat_token = data.get('pat_token')
-        
-        # Validate required fields
-        if not all([server_url, auth_method]):
-            return jsonify({
-                'success': False,
-                'error': 'Missing required fields: server_url and auth_method are required'
-            })
-        
-        results.append({'success': True, 'message': '🚀 Starting Pulse Analytics...'})
-        
-        # Authenticate
-        results.append({'success': True, 'message': '🔐 Authenticating with Tableau Server...'})
-        
-        auth_result = authenticate_tableau_rest(
-            server_url, api_version, site_content_url, auth_method,
-            username, password, pat_name, pat_token
-        )
-        
-        if not auth_result['success']:
-            return jsonify({
-                'success': False,
-                'error': f"Authentication failed: {auth_result['error']}"
-            })
-        
-        auth_token = auth_result['auth_token']
-        site_id = auth_result.get('site_id', '')
-        results.append({'success': True, 'message': '✅ Authentication successful!'})
-        
-        # Get all datasources for name mapping
-        results.append({'success': True, 'message': '🗄️ Retrieving datasource names...'})
-        datasources_result = get_all_datasources_rest(server_url, auth_token, site_id, api_version)
-        
-        datasource_id_to_name = {}
-        if datasources_result['success']:
-            datasource_id_to_name = datasources_result['datasources']
-            results.append({'success': True, 'message': f'✅ Found {len(datasource_id_to_name)} datasources'})
-        else:
-            results.append({'success': True, 'message': f'⚠️  Could not retrieve datasource names: {datasources_result.get("error")}'})
-        
-        # Get all definitions
-        results.append({'success': True, 'message': '📊 Retrieving all metric definitions...'})
-        definitions_result = get_metric_definitions_rest(server_url, auth_token)
-        
-        if not definitions_result['success']:
-            return jsonify({
-                'success': False,
-                'error': f"Failed to get definitions: {definitions_result['error']}"
-            })
-        
-        definitions = definitions_result.get('definitions', [])
-        results.append({'success': True, 'message': f'✅ Found {len(definitions)} metric definitions'})
-        
-        # Debug: log first definition structure
-        if definitions:
-            print(f"DEBUG: First definition structure: {json.dumps(definitions[0], indent=2)}")
-        
-        # Get all subscriptions
-        results.append({'success': True, 'message': '👥 Retrieving all subscriptions...'})
-        subscriptions_result = get_all_subscriptions_rest(server_url, auth_token)
-        
-        if not subscriptions_result['success']:
-            return jsonify({
-                'success': False,
-                'error': f"Failed to get subscriptions: {subscriptions_result['error']}"
-            })
-        
-        all_subscriptions = subscriptions_result.get('subscriptions', [])
-        results.append({'success': True, 'message': f'✅ Found {len(all_subscriptions)} total subscriptions'})
-        
-        # Debug: log first subscription structure
-        if all_subscriptions:
-            print(f"DEBUG: First subscription structure: {json.dumps(all_subscriptions[0], indent=2)}")
-        
-        # Extract unique metric IDs from subscriptions
-        results.append({'success': True, 'message': '📈 Extracting metric IDs from subscriptions...'})
-        
-        unique_metric_ids = set()
-        for sub in all_subscriptions:
-            metric_id = sub.get('metric_id')
-            if metric_id:
-                unique_metric_ids.add(metric_id)
-        
-        results.append({'success': True, 'message': f'✅ Found {len(unique_metric_ids)} unique metric IDs'})
-        
-        # Fetch details for each unique metric
-        results.append({'success': True, 'message': '📊 Retrieving metric details...'})
-        
-        all_metrics = []
-        definition_metrics_map = {}
-        
-        for i, metric_id in enumerate(unique_metric_ids, 1):
-            metric_result = get_metric_details_rest(server_url, auth_token, metric_id)
-            
-            if metric_result['success']:
-                metric = metric_result['metric']
-                all_metrics.append(metric)
-                
-                # Map metric to its definition
-                def_id = metric.get('definition_id')
-                if def_id:
-                    if def_id not in definition_metrics_map:
-                        definition_metrics_map[def_id] = []
-                    definition_metrics_map[def_id].append(metric)
-                
-                if i % 25 == 0 or i == len(unique_metric_ids):
-                    results.append({'success': True, 'message': f'  Progress: {i}/{len(unique_metric_ids)} metrics retrieved...'})
-        
-        results.append({'success': True, 'message': f'✅ Retrieved {len(all_metrics)} metric details'})
-        
-        # Debug: log first metric structure
-        if all_metrics:
-            print(f"DEBUG: First metric structure: {json.dumps(all_metrics[0], indent=2)}")
-            print(f"DEBUG: Sample metric has definition_id: {all_metrics[0].get('definition_id')}")
-            
-        # Also check if any metrics have definition_ids not in our definitions list
-        metric_def_ids = set(m.get('definition_id') for m in all_metrics if m.get('definition_id'))
-        definition_ids = set(d.get('id') for d in definitions if d.get('id'))
-        missing_def_ids = metric_def_ids - definition_ids
-        
-        if missing_def_ids:
-            print(f"DEBUG: WARNING - Found {len(missing_def_ids)} definition IDs in metrics that are not in definitions list:")
-            print(f"DEBUG: Missing definition IDs: {list(missing_def_ids)[:5]}")  # Show first 5
-        
-        # Build analytics data structures
-        results.append({'success': True, 'message': '🔍 Analyzing data...'})
-        
-        # Map metric_id to subscription count
-        metric_follower_count = {}
-        unique_followers = set()
-        
-        for sub in all_subscriptions:
-            metric_id = sub.get('metric_id')
-            user_id = sub.get('follower', {}).get('user_id')
-            
-            if metric_id:
-                metric_follower_count[metric_id] = metric_follower_count.get(metric_id, 0) + 1
-            
-            if user_id:
-                unique_followers.add(user_id)
-        
-        # Build metric details with follower counts and names
-        metrics_with_followers = []
-        definition_id_to_name = {d.get('id'): d.get('name', 'Unnamed') for d in definitions}
-        
-        print(f"DEBUG: Definition ID to name map has {len(definition_id_to_name)} entries")
-        
-        for metric in all_metrics:
-            metric_id = metric.get('id')
-            follower_count = metric_follower_count.get(metric_id, 0)
-            definition_id = metric.get('definition_id')
-            
-            # Try to get definition name from our map first
-            definition_name = definition_id_to_name.get(definition_id)
-            
-            # If not found, try to get it from the metric's metadata
-            if not definition_name:
-                # Metrics might have metadata with the definition name
-                metric_metadata = metric.get('metadata', {})
-                definition_name = metric_metadata.get('name') or metric_metadata.get('definition_name')
-                
-                if definition_name:
-                    print(f"DEBUG: Found definition name '{definition_name}' in metric metadata for definition_id {definition_id}")
-                else:
-                    print(f"DEBUG: Could not find definition name for definition_id {definition_id}, metric_id {metric_id}")
-                    definition_name = 'Unknown Definition'
-            
-            # Build metric name: Definition name + (Default) or (Scoped)
-            is_default = metric.get('is_default', False)
-            metric_name = definition_name
-            if is_default:
-                metric_name += " (Default)"
-            else:
-                # Check if it has filters to indicate it's scoped
-                filters = metric.get('specification', {}).get('filters', [])
-                if filters:
-                    metric_name += " (Scoped)"
-            
-            metrics_with_followers.append({
-                'id': metric_id,
-                'name': metric_name,
-                'definition_id': definition_id,
-                'definition_name': definition_name,
-                'follower_count': follower_count,
-                'is_default': is_default
-            })
-        
-        print(f"DEBUG: Total metrics with followers built: {len(metrics_with_followers)}")
-        print(f"DEBUG: Metric follower count map size: {len(metric_follower_count)}")
-        print(f"DEBUG: Sample follower counts: {list(metric_follower_count.items())[:5]}")
-        
-        # Sort metrics by follower count
-        top_metrics = sorted(metrics_with_followers, key=lambda x: x['follower_count'], reverse=True)[:10]
-        
-        print(f"DEBUG: Top metrics count: {len(top_metrics)}")
-        if top_metrics:
-            print(f"DEBUG: Top metric sample: {top_metrics[0]}")
-        
-        # Build definition analytics
-        definition_analytics = []
-        datasource_usage = {}
-        
-        for definition in definitions:
-            def_id = definition.get('id', 'Unknown')
-            def_name = definition.get('name', 'Unnamed')
-            
-            # Get datasource ID - try different possible locations
-            def_datasource_id = None
-            
-            # Try specification.datasource.id first (most common location)
-            if 'specification' in definition and 'datasource' in definition['specification']:
-                spec_ds = definition['specification']['datasource']
-                if isinstance(spec_ds, dict):
-                    def_datasource_id = spec_ds.get('id') or spec_ds.get('luid')
-                else:
-                    def_datasource_id = str(spec_ds)
-            
-            # Fall back to direct datasource field
-            if not def_datasource_id and 'datasource' in definition and definition['datasource']:
-                if isinstance(definition['datasource'], dict):
-                    def_datasource_id = definition['datasource'].get('id') or definition['datasource'].get('luid')
-                else:
-                    def_datasource_id = str(definition['datasource'])
-            
-            # Last resort
-            if not def_datasource_id:
-                def_datasource_id = definition.get('datasource_id', 'Unknown')
-            
-            is_certified = definition.get('certified', False)
-            
-            # Count metrics and followers for this definition
-            def_metrics = definition_metrics_map.get(def_id, [])
-            total_followers = sum([metric_follower_count.get(m.get('id'), 0) for m in def_metrics])
-            
-            definition_analytics.append({
-                'id': def_id,
-                'name': def_name,
-                'datasource_id': def_datasource_id,
-                'is_certified': is_certified,
-                'metric_count': len(def_metrics),
-                'total_followers': total_followers
-            })
-            
-            # Track datasource usage
-            if def_datasource_id and def_datasource_id != 'Unknown':
-                if def_datasource_id not in datasource_usage:
-                    datasource_usage[def_datasource_id] = {
-                        'definition_count': 0,
-                        'metric_count': 0,
-                        'follower_count': 0
-                    }
-                
-                datasource_usage[def_datasource_id]['definition_count'] += 1
-                datasource_usage[def_datasource_id]['metric_count'] += len(def_metrics)
-                datasource_usage[def_datasource_id]['follower_count'] += total_followers
-        
-        print(f"DEBUG: Definition analytics count: {len(definition_analytics)}")
-        if definition_analytics:
-            print(f"DEBUG: Sample definition analytics: {definition_analytics[0]}")
-        
-        print(f"DEBUG: Datasource usage count: {len(datasource_usage)}")
-        if datasource_usage:
-            print(f"DEBUG: Sample datasource: {list(datasource_usage.items())[0]}")
-        
-        # Sort definitions by total followers
-        top_definitions = sorted(definition_analytics, key=lambda x: x['total_followers'], reverse=True)[:10]
-        
-        # Sort datasources by usage and add names
-        top_datasources = sorted(
-            [{'id': ds_id, 'name': datasource_id_to_name.get(ds_id, ds_id), **stats} for ds_id, stats in datasource_usage.items()],
-            key=lambda x: x['follower_count'],
-            reverse=True
-        )[:10]
-        
-        print(f"DEBUG: Top definitions count: {len(top_definitions)}")
-        print(f"DEBUG: Top datasources count: {len(top_datasources)}")
-        
-        # Build summary
-        results.append({'success': True, 'message': '✅ Analysis complete!'})
-        
-        analytics_data = {
-            'summary': {
-                'total_definitions': len(definitions),
-                'total_metrics': len(all_metrics),
-                'total_subscriptions': len(all_subscriptions),
-                'unique_followers': len(unique_followers),
-                'certified_definitions': sum(1 for d in definitions if d.get('certified', False)),
-                'unique_datasources': len(datasource_usage)
-            },
-            'top_metrics': top_metrics,
-            'top_definitions': top_definitions,
-            'top_datasources': top_datasources,
-            'definition_details': definition_analytics
-        }
-        
-        return jsonify({
-            'success': True,
-            'results': results,
-            'analytics': analytics_data,
-            'summary': f"✅ Analytics generated successfully! Found {len(definitions)} definitions, {len(all_metrics)} metrics, {len(all_subscriptions)} subscriptions from {len(unique_followers)} unique users"
-        })
-        
-    except Exception as e:
-        # Get full stack trace
-        tb_str = traceback.format_exc()
-        print(f"ERROR in pulse_analytics: {tb_str}")
-        
+    data = request.json
+
+    server_url = data.get('server_url', '').rstrip('/')
+    api_version = data.get('api_version', '3.26')
+    site_content_url = data.get('site_content_url', '')
+    auth_method = data.get('auth_method')
+    username = data.get('username')
+    password = data.get('password')
+    pat_name = data.get('pat_name')
+    pat_token = data.get('pat_token')
+
+    if not all([server_url, auth_method]):
         return jsonify({
             'success': False,
-            'error': f'Unexpected error: {str(e)}',
-            'traceback': tb_str,
-            'error_type': type(e).__name__
+            'error': 'Missing required fields: server_url and auth_method are required'
         })
+
+    def generate():
+        def emit(msg, success=True):
+            yield json.dumps({'type': 'progress', 'success': success, 'message': msg}) + '\n'
+
+        def emit_error(msg):
+            yield json.dumps({'type': 'error', 'success': False, 'error': msg}) + '\n'
+
+        try:
+            yield from emit('🚀 Starting Pulse Analytics...')
+            yield from emit('🔐 Authenticating with Tableau Server...')
+
+            auth_result = authenticate_tableau_rest(
+                server_url, api_version, site_content_url, auth_method,
+                username, password, pat_name, pat_token
+            )
+
+            if not auth_result['success']:
+                yield from emit_error(f"Authentication failed: {auth_result['error']}")
+                return
+
+            auth_token = auth_result['auth_token']
+            site_id = auth_result.get('site_id', '')
+            yield from emit('✅ Authentication successful!')
+
+            yield from emit('🗄️ Retrieving datasource names...')
+            datasources_result = get_all_datasources_rest(server_url, auth_token, site_id, api_version)
+            datasource_id_to_name = {}
+            if datasources_result['success']:
+                datasource_id_to_name = datasources_result['datasources']
+                yield from emit(f'✅ Found {len(datasource_id_to_name)} datasources')
+            else:
+                yield from emit(f'⚠️  Could not retrieve datasource names: {datasources_result.get("error")}')
+
+            yield from emit('📊 Retrieving all metric definitions...')
+            definitions_result = get_metric_definitions_rest(server_url, auth_token)
+            if not definitions_result['success']:
+                yield from emit_error(f"Failed to get definitions: {definitions_result['error']}")
+                return
+            definitions = definitions_result.get('definitions', [])
+            yield from emit(f'✅ Found {len(definitions)} metric definitions')
+
+            yield from emit('👥 Retrieving all subscriptions...')
+            subscriptions_result = get_all_subscriptions_rest(server_url, auth_token)
+            if not subscriptions_result['success']:
+                yield from emit_error(f"Failed to get subscriptions: {subscriptions_result['error']}")
+                return
+            all_subscriptions = subscriptions_result.get('subscriptions', [])
+            yield from emit(f'✅ Found {len(all_subscriptions)} total subscriptions')
+
+            # Extract unique metric IDs from subscriptions
+            unique_metric_ids = set()
+            for sub in all_subscriptions:
+                metric_id = sub.get('metric_id')
+                if metric_id:
+                    unique_metric_ids.add(metric_id)
+            yield from emit(f'✅ Found {len(unique_metric_ids)} unique metric IDs')
+
+            # Fetch details for each unique metric, emitting progress as we go
+            yield from emit(f'📊 Retrieving details for {len(unique_metric_ids)} metrics...')
+            all_metrics = []
+            definition_metrics_map = {}
+            unique_metric_ids_list = list(unique_metric_ids)
+            total = len(unique_metric_ids_list)
+
+            for i, metric_id in enumerate(unique_metric_ids_list, 1):
+                metric_result = get_metric_details_rest(server_url, auth_token, metric_id)
+                if metric_result['success']:
+                    metric = metric_result['metric']
+                    all_metrics.append(metric)
+                    def_id = metric.get('definition_id')
+                    if def_id:
+                        if def_id not in definition_metrics_map:
+                            definition_metrics_map[def_id] = []
+                        definition_metrics_map[def_id].append(metric)
+
+                if i % 25 == 0 or i == total:
+                    yield from emit(f'  Progress: {i}/{total} metrics retrieved...')
+
+            yield from emit(f'✅ Retrieved {len(all_metrics)} metric details')
+            yield from emit('🔍 Analyzing data...')
+
+            # Build follower counts from subscriptions
+            metric_follower_count = {}
+            unique_followers = set()
+            for sub in all_subscriptions:
+                mid = sub.get('metric_id')
+                user_id = sub.get('follower', {}).get('user_id')
+                if mid:
+                    metric_follower_count[mid] = metric_follower_count.get(mid, 0) + 1
+                if user_id:
+                    unique_followers.add(user_id)
+
+            definition_id_to_name = {d.get('id'): d.get('name', 'Unnamed') for d in definitions}
+
+            metrics_with_followers = []
+            for metric in all_metrics:
+                mid = metric.get('id')
+                follower_count = metric_follower_count.get(mid, 0)
+                definition_id = metric.get('definition_id')
+                definition_name = definition_id_to_name.get(definition_id)
+                if not definition_name:
+                    metric_metadata = metric.get('metadata', {})
+                    definition_name = metric_metadata.get('name') or metric_metadata.get('definition_name') or 'Unknown Definition'
+
+                is_default = metric.get('is_default', False)
+                metric_name = definition_name
+                if is_default:
+                    metric_name += ' (Default)'
+                elif metric.get('specification', {}).get('filters', []):
+                    metric_name += ' (Scoped)'
+
+                metrics_with_followers.append({
+                    'id': mid,
+                    'name': metric_name,
+                    'definition_id': definition_id,
+                    'definition_name': definition_name,
+                    'follower_count': follower_count,
+                    'is_default': is_default
+                })
+
+            top_metrics = sorted(metrics_with_followers, key=lambda x: x['follower_count'], reverse=True)[:10]
+
+            definition_analytics = []
+            datasource_usage = {}
+            for definition in definitions:
+                def_id = definition.get('id', 'Unknown')
+                def_name = definition.get('name', 'Unnamed')
+
+                def_datasource_id = None
+                if 'specification' in definition and 'datasource' in definition['specification']:
+                    spec_ds = definition['specification']['datasource']
+                    if isinstance(spec_ds, dict):
+                        def_datasource_id = spec_ds.get('id') or spec_ds.get('luid')
+                    else:
+                        def_datasource_id = str(spec_ds)
+                if not def_datasource_id and 'datasource' in definition and definition['datasource']:
+                    if isinstance(definition['datasource'], dict):
+                        def_datasource_id = definition['datasource'].get('id') or definition['datasource'].get('luid')
+                    else:
+                        def_datasource_id = str(definition['datasource'])
+                if not def_datasource_id:
+                    def_datasource_id = definition.get('datasource_id', 'Unknown')
+
+                is_certified = definition.get('certified', False)
+                def_metrics = definition_metrics_map.get(def_id, [])
+                total_followers = sum(metric_follower_count.get(m.get('id'), 0) for m in def_metrics)
+
+                definition_analytics.append({
+                    'id': def_id,
+                    'name': def_name,
+                    'datasource_id': def_datasource_id,
+                    'is_certified': is_certified,
+                    'metric_count': len(def_metrics),
+                    'total_followers': total_followers
+                })
+
+                if def_datasource_id and def_datasource_id != 'Unknown':
+                    if def_datasource_id not in datasource_usage:
+                        datasource_usage[def_datasource_id] = {'definition_count': 0, 'metric_count': 0, 'follower_count': 0}
+                    datasource_usage[def_datasource_id]['definition_count'] += 1
+                    datasource_usage[def_datasource_id]['metric_count'] += len(def_metrics)
+                    datasource_usage[def_datasource_id]['follower_count'] += total_followers
+
+            top_definitions = sorted(definition_analytics, key=lambda x: x['total_followers'], reverse=True)[:10]
+            top_datasources = sorted(
+                [{'id': ds_id, 'name': datasource_id_to_name.get(ds_id, ds_id), **stats} for ds_id, stats in datasource_usage.items()],
+                key=lambda x: x['follower_count'],
+                reverse=True
+            )[:10]
+
+            yield from emit('✅ Analysis complete!')
+
+            analytics_data = {
+                'summary': {
+                    'total_definitions': len(definitions),
+                    'total_metrics': len(all_metrics),
+                    'total_subscriptions': len(all_subscriptions),
+                    'unique_followers': len(unique_followers),
+                    'certified_definitions': sum(1 for d in definitions if d.get('certified', False)),
+                    'unique_datasources': len(datasource_usage)
+                },
+                'top_metrics': top_metrics,
+                'top_definitions': top_definitions,
+                'top_datasources': top_datasources,
+                'definition_details': definition_analytics
+            }
+
+            yield json.dumps({
+                'type': 'complete',
+                'success': True,
+                'analytics': analytics_data,
+                'summary': f"✅ Analytics generated successfully! Found {len(definitions)} definitions, {len(all_metrics)} metrics, {len(all_subscriptions)} subscriptions from {len(unique_followers)} unique users"
+            }) + '\n'
+
+        except Exception as e:
+            tb_str = traceback.format_exc()
+            print(f"ERROR in pulse_analytics: {tb_str}")
+            yield json.dumps({
+                'type': 'error',
+                'success': False,
+                'error': f'Unexpected error: {str(e)}',
+                'traceback': tb_str,
+                'error_type': type(e).__name__
+            }) + '\n'
+
+    return Response(stream_with_context(generate()), mimetype='application/x-ndjson')
 
 @app.route('/export-definitions', methods=['POST'])
 def export_definitions():

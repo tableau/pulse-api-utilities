@@ -720,7 +720,7 @@
                         <select id="source_auth_method" name="source_auth_method" onchange="toggleAuthFields('source')" required>
                             <option value="">Select Authentication Method</option>
                             <option value="u">Username/Password</option>
-                            <option value="p">Personal Access Token</option>
+                            <option value="p" selected>Personal Access Token</option>
                         </select>
                     </div>
                     <div id="source_user_auth" class="auth-fields" style="display: none;">
@@ -731,7 +731,7 @@
                             <input type="password" id="source_password" name="source_password" placeholder="Password">
                         </div>
                     </div>
-                    <div id="source_pat_auth" class="auth-fields" style="display: none;">
+                    <div id="source_pat_auth" class="auth-fields" style="display: block;">
                         <div class="form-row">
                             <input type="text" id="source_pat_name" name="source_pat_name" placeholder="PAT Name">
                         </div>
@@ -748,17 +748,19 @@
                 <div class="form-section">
                     <h3>📤 Destination Site (Where to copy TO)</h3>
                     <div class="form-row">
-                        <input type="text" id="dest_host" name="dest_host" placeholder="Destination Host" required>
+                        <input type="text" id="dest_host" name="dest_host_display" placeholder="Destination Host" value="https://prod-uk-a.online.tableau.com" autocomplete="off" oninput="document.getElementById('dest_host_hidden').value=this.value" required>
+                        <input type="hidden" id="dest_host_hidden" name="dest_host" value="https://prod-uk-a.online.tableau.com">
                     </div>
                     <div class="form-row">
-                        <input type="text" id="dest_content_url" name="dest_content_url" placeholder="Destination Site Name (e.g., mysite)" required>
+                        <input type="text" id="dest_content_url" name="dest_content_url_display" placeholder="Destination Site Name (e.g., mysite)" value="danpuka" autocomplete="off" oninput="document.getElementById('dest_content_url_hidden').value=this.value" required>
+                        <input type="hidden" id="dest_content_url_hidden" name="dest_content_url" value="danpuka">
                         <small>💡 The site name from the URL: tableau.com/#/site/<strong>mysite</strong>/...</small>
                     </div>
                     <div class="form-row">
                         <select id="dest_auth_method" name="dest_auth_method" onchange="toggleAuthFields('dest')" required>
                             <option value="">Select Authentication Method</option>
                             <option value="u">Username/Password</option>
-                            <option value="p">Personal Access Token</option>
+                            <option value="p" selected>Personal Access Token</option>
                         </select>
                     </div>
                     <div id="dest_user_auth" class="auth-fields" style="display: none;">
@@ -769,7 +771,7 @@
                             <input type="password" id="dest_password" name="dest_password" placeholder="Password">
                         </div>
                     </div>
-                    <div id="dest_pat_auth" class="auth-fields" style="display: none;">
+                    <div id="dest_pat_auth" class="auth-fields" style="display: block;">
                         <div class="form-row">
                             <input type="text" id="dest_pat_name" name="dest_pat_name" placeholder="PAT Name">
                         </div>
@@ -786,7 +788,8 @@
                 <div class="form-section">
                     <h3>📋 Definition Selection</h3>
                     <div class="form-row">
-                        <input type="text" id="definition_ids" name="definition_ids" placeholder='Definition IDs (comma-separated) or "all" for all definitions'>
+                        <input type="text" id="definition_ids" name="definition_ids_display" placeholder='Definition IDs (comma-separated) or "all" for all definitions' value="5036a7cc-1ac0-4bbf-baad-cd4202afd8c5" autocomplete="off" oninput="document.getElementById('definition_ids_hidden').value=this.value">
+                        <input type="hidden" id="definition_ids_hidden" name="definition_ids" value="5036a7cc-1ac0-4bbf-baad-cd4202afd8c5">
                         <small>Enter specific definition IDs separated by commas, or type "all" to copy all definitions from the source datasource</small>
                     </div>
                     <div class="form-row" style="margin-top:12px;">
@@ -859,7 +862,8 @@
                         </select>
                     </div>
                     <div class="form-row">
-                        <input type="text" id="manage_metrics" name="metric_ids" placeholder="Metric IDs (comma-separated)" required>
+                        <input type="text" id="manage_metrics" name="scoped_manage_metrics_display" placeholder="Metric IDs (comma-separated)" value="3a33e7d8-44ba-406e-be39-0ccad0dcc10b" autocomplete="off" oninput="document.getElementById('manage_metrics_hidden').value=this.value" required>
+                        <input type="hidden" id="manage_metrics_hidden" name="metric_ids" value="3a33e7d8-44ba-406e-be39-0ccad0dcc10b">
                         <small>Enter the IDs of the metrics you want to modify, separated by commas</small>
                     </div>
                     
@@ -1188,19 +1192,21 @@
                 <div class="form-section">
                     <h3>🔗 Server Connection</h3>
                     <div class="form-row">
-                        <input type="url" id="scoped_server_url" name="server_url" placeholder="Tableau Server URL (e.g., https://your-server.com)" required>
+                        <input type="text" id="scoped_server_url" name="scoped_server_url_display" placeholder="Tableau Server URL (e.g., https://your-server.com)" autocomplete="off" oninput="document.getElementById('scoped_server_url_hidden').value=this.value" required>
+                        <input type="hidden" id="scoped_server_url_hidden" name="server_url" value="">
                     </div>
                     <div class="form-row">
                         <input type="text" id="scoped_api_version" name="api_version" value="3.26" placeholder="API Version (e.g., 3.26)" pattern="^\d+\.\d+$">
                     </div>
                     <div class="form-row">
-                        <input type="text" id="scoped_site_content_url" name="site_content_url" placeholder="Site Name (e.g., mysite — blank for Default)">
+                        <input type="text" id="scoped_site_content_url" name="scoped_site_content_url_display" placeholder="Site Name (e.g., mysite — blank for Default)" autocomplete="off" oninput="document.getElementById('scoped_site_content_url_hidden').value=this.value">
+                        <input type="hidden" id="scoped_site_content_url_hidden" name="site_content_url" value="">
                     </div>
                     <div class="form-row">
                         <select id="scoped_auth_method" name="auth_method" onchange="toggleAuthFields('scoped')" required>
                             <option value="">Select Authentication Method</option>
                             <option value="password">Username/Password</option>
-                            <option value="pat">Personal Access Token</option>
+                            <option value="pat" selected>Personal Access Token</option>
                         </select>
                     </div>
                     <div id="scoped_user_auth" class="auth-fields" style="display: none;">
@@ -1211,7 +1217,7 @@
                             <input type="password" id="scoped_password" name="password" placeholder="Password">
                         </div>
                     </div>
-                    <div id="scoped_pat_auth" class="auth-fields" style="display: none;">
+                    <div id="scoped_pat_auth" class="auth-fields" style="display: block;">
                         <div class="form-row">
                             <input type="text" id="scoped_pat_name" name="pat_name" placeholder="PAT Name">
                         </div>
@@ -1225,7 +1231,8 @@
                 <div class="form-section">
                     <h3>📊 Source Metric Configuration</h3>
                     <div class="form-row">
-                        <input type="text" id="scoped_source_metric_id" name="source_metric_id" placeholder="Source Metric ID" required>
+                        <input type="text" id="scoped_source_metric_id" name="scoped_source_metric_id_display" placeholder="Source Metric ID" value="3a33e7d8-44ba-406e-be39-0ccad0dcc10b" autocomplete="off" oninput="document.getElementById('scoped_source_metric_id_hidden').value=this.value" required>
+                        <input type="hidden" id="scoped_source_metric_id_hidden" name="source_metric_id" value="3a33e7d8-44ba-406e-be39-0ccad0dcc10b">
                         <small>💡 The ID of the scoped metric you want to use as a template</small>
                     </div>
                 </div>
@@ -1279,6 +1286,7 @@
 
                 <div class="form-actions">
                     <button type="submit" class="button">📊 Create Scoped Metrics</button>
+                    <button type="button" class="button" style="background:#b91c1c;" onclick="deleteScopedMetrics()">🗑️ Delete All Scoped Metrics</button>
                     <button type="button" class="button secondary" onclick="showTab('home')">← Back to Home</button>
                 </div>
             </form>
@@ -1948,6 +1956,7 @@
             
             // Clear previous results when switching tabs
             clearPreviousResults();
+
         }
 
         // Authentication method toggle
@@ -2468,6 +2477,45 @@
             }
         }
 
+        async function deleteScopedMetrics() {
+            const definitionId = (document.getElementById('scoped_source_metric_id_hidden') || document.getElementById('scoped_source_metric_id')).value.trim();
+            if (!definitionId) {
+                alert('Please enter a Source Metric ID first — it is used to look up the definition.');
+                return;
+            }
+            if (!confirm(`This will permanently delete ALL scoped (non-default) metrics for this definition.\n\nThe default metric will be kept.\n\nAre you sure?`)) return;
+
+            showProgress('🗑️ Deleting scoped metrics...', '🗑️ Delete Scoped Metrics Results');
+
+            const payload = {
+                server_url: document.getElementById('scoped_server_url_hidden').value,
+                api_version: document.getElementById('scoped_api_version').value,
+                site_content_url: document.getElementById('scoped_site_content_url_hidden').value,
+                auth_method: document.getElementById('scoped_auth_method').value,
+                definition_id: definitionId,
+                pat_name: document.getElementById('scoped_pat_name').value,
+                pat_token: document.getElementById('scoped_pat_token').value,
+                username: document.getElementById('scoped_username') ? document.getElementById('scoped_username').value : '',
+                password: document.getElementById('scoped_password') ? document.getElementById('scoped_password').value : '',
+            };
+
+            try {
+                const response = await fetch('/delete-scoped-metrics', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                if (result.success) {
+                    showResults(result, '✅ Scoped metrics deleted!');
+                } else {
+                    showError(result.error || 'Unknown error', '❌ Delete failed');
+                }
+            } catch (error) {
+                showError('Failed to communicate with server: ' + error.message, '❌ Delete failed');
+            }
+        }
+
         async function submitBulkScoped(event) {
             event.preventDefault();
             
@@ -2567,31 +2615,59 @@
 
         async function submitAnalytics(event) {
             event.preventDefault();
-            
+
             const formData = new FormData(event.target);
             const data = Object.fromEntries(formData.entries());
-            
-            // Clear previous results and show new progress
+
             clearPreviousResults();
             showProgress('📈 Generating analytics...', '📈 Pulse Analytics');
-            
+
+            const progressDiv = document.getElementById('progress');
+            const copyResults = document.getElementById('copyResults');
+            copyResults.innerHTML = '';
+
             try {
                 const response = await fetch('/pulse-analytics', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
                 });
 
-                const result = await safeJsonParse(response);
-                
-                if (result.success) {
-                    // Hide progress and show analytics dashboard
-                    document.getElementById('results').style.display = 'none';
-                    displayAnalytics(result.analytics);
-                } else {
-                    showError(result.error || 'Unknown error occurred', '❌ Analytics generation failed', result);
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status}`);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // keep incomplete last line
+
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        let msg;
+                        try { msg = JSON.parse(line); } catch { continue; }
+
+                        if (msg.type === 'progress') {
+                            const icon = msg.success ? '✅' : '⚠️';
+                            copyResults.innerHTML += `<div class="result-item ${msg.success ? 'success' : 'error'}">${icon} ${msg.message}</div>`;
+                            progressDiv.innerHTML = `<div class="loading"></div><span style="margin-left:10px;">${msg.message}</span>`;
+                            document.getElementById('results').style.display = 'block';
+                        } else if (msg.type === 'error') {
+                            showError(msg.error || 'Unknown error occurred', '❌ Analytics generation failed', msg);
+                            return;
+                        } else if (msg.type === 'complete') {
+                            progressDiv.innerHTML = msg.summary || '✅ Analysis complete!';
+                            document.getElementById('results').style.display = 'none';
+                            displayAnalytics(msg.analytics);
+                        }
+                    }
                 }
             } catch (error) {
                 console.error('Error:', error);
@@ -3547,6 +3623,59 @@
                 apiDiv.style.display = 'block';
             }
         }
+    </script>
+    <script>
+        // Demo pre-fill removed — credentials must be entered by the user
+        document.addEventListener('DOMContentLoaded', function () { setTimeout(function() {
+            const HOST = '';
+            const SITE = '';
+            const PAT_NAME = '';
+            const PAT_SECRET = '';
+
+            // Utilities that share the standard toggleAuthFields pattern
+            // prefix -> { host field id, site field id, auth select id, pat name id, pat secret id }
+            const utils = [
+                { host: 'manage_host',       site: 'manage_site',       auth: 'manage_auth_method',    patName: 'manage_pat_name',    patSecret: 'manage_pat_token'   },
+                { host: 'swap_host',         site: 'swap_site',         auth: 'swap_auth_method',      patName: 'swap_pat_name',      patSecret: 'swap_pat_secret'    },
+                { host: 'prefs_server_url',  site: 'prefs_site_content_url', auth: 'prefs_auth_method', patName: 'prefs_pat_name',   patSecret: 'prefs_pat_token'    },
+                { host: 'cert_server_url',   site: 'cert_site_content_url',  auth: 'cert_auth_method',  patName: 'cert_pat_name',    patSecret: 'cert_pat_token'     },
+                { host: 'scoped_server_url', site: 'scoped_site_content_url', auth: 'scoped_auth_method', patName: 'scoped_pat_name',    patSecret: 'scoped_pat_token'   },
+                { host: 'analytics_server_url', site: 'analytics_site_content_url', auth: 'analytics_auth_method', patName: 'analytics_pat_name', patSecret: 'analytics_pat_token'},
+                { host: 'zero_host',         site: 'zero_site',         auth: 'zero_auth_method',      patName: 'zero_pat_name',      patSecret: 'zero_pat_token'     },
+                { host: 'raf_host',          site: 'raf_site',          auth: 'raf_auth_method',       patName: 'raf_pat_name',       patSecret: 'raf_pat_token'      },
+                { host: 'export_server_url', site: 'export_site_content_url', auth: 'export_auth_method', patName: 'export_pat_name', patSecret: 'export_pat_token'  },
+                { host: 'fav_host',          site: 'fav_site',          auth: 'fav_auth_method',       patName: 'fav_pat_name',       patSecret: 'fav_pat_token'      },
+                { host: 'backup_host',       site: 'backup_site',       auth: 'backup_auth_method',    patName: 'backup_pat_name',    patSecret: 'backup_pat_token'   },
+                { host: 'restore_host',      site: 'restore_site',      auth: 'restore_auth_method',   patName: 'restore_pat_name',   patSecret: 'restore_pat_token'  },
+                // Copy Definitions — source side only (dest has its own hardcoded credentials)
+                { host: 'source_host',       site: 'source_content_url', auth: 'source_auth_method',  patName: 'source_pat_name',    patSecret: 'source_pat_secret'  },
+            ];
+
+            utils.forEach(function (u) {
+                var hostEl      = document.getElementById(u.host);
+                var siteEl      = document.getElementById(u.site);
+                var authEl      = document.getElementById(u.auth);
+                var patNameEl   = document.getElementById(u.patName);
+                var patSecretEl = document.getElementById(u.patSecret);
+
+                if (hostEl)      hostEl.value = HOST;
+                if (siteEl)      siteEl.value = SITE;
+                if (patNameEl)   patNameEl.value = PAT_NAME;
+                if (patSecretEl) patSecretEl.value = PAT_SECRET;
+
+                // Select PAT auth and trigger the toggle so the fields become visible
+                if (authEl) {
+                    // Find the PAT option (value is 'p', 'pat', or similar)
+                    var patOption = Array.from(authEl.options).find(function (o) {
+                        return o.value === 'pat' || o.value === 'p';
+                    });
+                    if (patOption) {
+                        authEl.value = patOption.value;
+                        authEl.dispatchEvent(new Event('change'));
+                    }
+                }
+            });
+        }, 300); });
     </script>
 </body>
 </html>
