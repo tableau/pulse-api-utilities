@@ -29,6 +29,14 @@ app = Flask(__name__)
 # Constants
 API_VERSION = "3.24"
 REQUEST_TIMEOUT = 20  # Timeout for API requests in seconds
+_FLUSH_PAD = 4096  # Pad NDJSON lines to this size to force gunicorn buffer flush
+
+def _ndjson_line(obj):
+    """Serialize obj to a newline-terminated JSON line padded to flush gunicorn's output buffer."""
+    line = json.dumps(obj)
+    if len(line) < _FLUSH_PAD:
+        line = line + ' ' * (_FLUSH_PAD - len(line))
+    return line + '\n'
 
 # ------------------------------
 # Sign in helpers (from original CLI script)
@@ -1842,10 +1850,10 @@ def copy_definitions():
 
     def generate():
         def emit(msg, success=True):
-            yield json.dumps({'type': 'progress', 'success': success, 'message': msg}) + '\n'
+            yield _ndjson_line({'type': 'progress', 'success': success, 'message': msg})
 
         def emit_error(msg):
-            yield json.dumps({'type': 'error', 'success': False, 'error': msg}) + '\n'
+            yield _ndjson_line({'type': 'error', 'success': False, 'error': msg})
 
         token_a = token_b = None
         try:
@@ -1984,19 +1992,19 @@ def copy_definitions():
             if failed_count > 0:
                 summary += f", {failed_count} failed"
 
-            yield json.dumps({
+            yield _ndjson_line({
                 'type': 'complete',
                 'success': True,
                 'results': results,
                 'summary': summary,
                 'copied_count': copied_count,
                 'failed_count': failed_count
-            }) + '\n'
+            })
 
         except Exception as e:
             tb_str = traceback.format_exc()
             print(f"ERROR in copy_definitions: {tb_str}")
-            yield json.dumps({'type': 'error', 'success': False, 'error': f'Unexpected error: {str(e)}'}) + '\n'
+            yield _ndjson_line({'type': 'error', 'success': False, 'error': f'Unexpected error: {str(e)}'})
         finally:
             if token_a:
                 force_sign_out(source_host, token_a)
@@ -3185,10 +3193,10 @@ def pulse_analytics():
 
     def generate():
         def emit(msg, success=True):
-            yield json.dumps({'type': 'progress', 'success': success, 'message': msg}) + '\n'
+            yield _ndjson_line({'type': 'progress', 'success': success, 'message': msg})
 
         def emit_error(msg):
-            yield json.dumps({'type': 'error', 'success': False, 'error': msg}) + '\n'
+            yield _ndjson_line({'type': 'error', 'success': False, 'error': msg})
 
         try:
             if not all([server_url, auth_method]):
@@ -3374,23 +3382,23 @@ def pulse_analytics():
                 'definition_details': definition_analytics
             }
 
-            yield json.dumps({
+            yield _ndjson_line({
                 'type': 'complete',
                 'success': True,
                 'analytics': analytics_data,
                 'summary': f"✅ Analytics generated successfully! Found {len(definitions)} definitions, {len(all_metrics)} metrics, {len(all_subscriptions)} subscriptions from {len(unique_followers)} unique users"
-            }) + '\n'
+            })
 
         except Exception as e:
             tb_str = traceback.format_exc()
             print(f"ERROR in pulse_analytics: {tb_str}")
-            yield json.dumps({
+            yield _ndjson_line({
                 'type': 'error',
                 'success': False,
                 'error': f'Unexpected error: {str(e)}',
                 'traceback': tb_str,
                 'error_type': type(e).__name__
-            }) + '\n'
+            })
 
     return Response(stream_with_context(generate()), mimetype='application/x-ndjson')
 
