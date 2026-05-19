@@ -1812,7 +1812,12 @@ def tcm_download_log_file(download_url, session_token=None):
 @app.route('/')
 def index():
     """Main page with Pulse Definition Copier UI"""
-    return render_template('index.html')
+    response = render_template('index.html')
+    from flask import make_response
+    resp = make_response(response)
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+    resp.headers['Pragma'] = 'no-cache'
+    return resp
 
 @app.route('/api/hello')
 def api_hello():
