@@ -3,3 +3,4 @@ Werkzeug==2.3.7
 requests==2.31.0
 tableauhyperapi
 gunicorn==21.2.0
+gevent

@@ -748,12 +748,12 @@
                 <div class="form-section">
                     <h3>📤 Destination Site (Where to copy TO)</h3>
                     <div class="form-row">
-                        <input type="text" id="dest_host" name="dest_host_display" placeholder="Destination Host" value="https://prod-uk-a.online.tableau.com" autocomplete="off" oninput="document.getElementById('dest_host_hidden').value=this.value" required>
-                        <input type="hidden" id="dest_host_hidden" name="dest_host" value="https://prod-uk-a.online.tableau.com">
+                        <input type="text" id="dest_host" name="dest_host_display" placeholder="Destination Host" autocomplete="off" oninput="document.getElementById('dest_host_hidden').value=this.value" required>
+                        <input type="hidden" id="dest_host_hidden" name="dest_host" value="">
                     </div>
                     <div class="form-row">
-                        <input type="text" id="dest_content_url" name="dest_content_url_display" placeholder="Destination Site Name (e.g., mysite)" value="danpuka" autocomplete="off" oninput="document.getElementById('dest_content_url_hidden').value=this.value" required>
-                        <input type="hidden" id="dest_content_url_hidden" name="dest_content_url" value="danpuka">
+                        <input type="text" id="dest_content_url" name="dest_content_url_display" placeholder="Destination Site Name (e.g., mysite)" autocomplete="off" oninput="document.getElementById('dest_content_url_hidden').value=this.value" required>
+                        <input type="hidden" id="dest_content_url_hidden" name="dest_content_url" value="">
                         <small>💡 The site name from the URL: tableau.com/#/site/<strong>mysite</strong>/...</small>
                     </div>
                     <div class="form-row">
@@ -788,8 +788,8 @@
                 <div class="form-section">
                     <h3>📋 Definition Selection</h3>
                     <div class="form-row">
-                        <input type="text" id="definition_ids" name="definition_ids_display" placeholder='Definition IDs (comma-separated) or "all" for all definitions' value="5036a7cc-1ac0-4bbf-baad-cd4202afd8c5" autocomplete="off" oninput="document.getElementById('definition_ids_hidden').value=this.value">
-                        <input type="hidden" id="definition_ids_hidden" name="definition_ids" value="5036a7cc-1ac0-4bbf-baad-cd4202afd8c5">
+                        <input type="text" id="definition_ids" name="definition_ids_display" placeholder='Definition IDs (comma-separated) or "all" for all definitions' autocomplete="off" oninput="document.getElementById('definition_ids_hidden').value=this.value">
+                        <input type="hidden" id="definition_ids_hidden" name="definition_ids" value="">
                         <small>Enter specific definition IDs separated by commas, or type "all" to copy all definitions from the source datasource</small>
                     </div>
                     <div class="form-row" style="margin-top:12px;">
@@ -862,8 +862,8 @@
                         </select>
                     </div>
                     <div class="form-row">
-                        <input type="text" id="manage_metrics" name="scoped_manage_metrics_display" placeholder="Metric IDs (comma-separated)" value="3a33e7d8-44ba-406e-be39-0ccad0dcc10b" autocomplete="off" oninput="document.getElementById('manage_metrics_hidden').value=this.value" required>
-                        <input type="hidden" id="manage_metrics_hidden" name="metric_ids" value="3a33e7d8-44ba-406e-be39-0ccad0dcc10b">
+                        <input type="text" id="manage_metrics" name="scoped_manage_metrics_display" placeholder="Metric IDs (comma-separated)" autocomplete="off" oninput="document.getElementById('manage_metrics_hidden').value=this.value" required>
+                        <input type="hidden" id="manage_metrics_hidden" name="metric_ids" value="">
                         <small>Enter the IDs of the metrics you want to modify, separated by commas</small>
                     </div>
                     
@@ -1231,8 +1231,8 @@
                 <div class="form-section">
                     <h3>📊 Source Metric Configuration</h3>
                     <div class="form-row">
-                        <input type="text" id="scoped_source_metric_id" name="scoped_source_metric_id_display" placeholder="Source Metric ID" value="3a33e7d8-44ba-406e-be39-0ccad0dcc10b" autocomplete="off" oninput="document.getElementById('scoped_source_metric_id_hidden').value=this.value" required>
-                        <input type="hidden" id="scoped_source_metric_id_hidden" name="source_metric_id" value="3a33e7d8-44ba-406e-be39-0ccad0dcc10b">
+                        <input type="text" id="scoped_source_metric_id" name="scoped_source_metric_id_display" placeholder="Source Metric ID" autocomplete="off" oninput="document.getElementById('scoped_source_metric_id_hidden').value=this.value" required>
+                        <input type="hidden" id="scoped_source_metric_id_hidden" name="source_metric_id" value="">
                         <small>💡 The ID of the scoped metric you want to use as a template</small>
                     </div>
                 </div>
