@@ -82,14 +82,29 @@ def force_sign_out(host, token=None):
 # Datasource lookup
 # ------------------------------
 def get_datasource_id_rest(host, token, site_id, datasource_name):
-    """Get datasource ID by name"""
-    url = f"{host}/api/{API_VERSION}/sites/{site_id}/datasources"
+    """Get datasource ID by name, paginating through all results"""
     headers = {"X-Tableau-Auth": token, "Accept": "application/json"}
-    r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-    r.raise_for_status()
-    ds_list = r.json().get("datasources", {}).get("datasource", [])
-    for ds in ds_list:
+    page_size = 100
+    page_number = 1
+    all_datasources = []
+    while True:
+        url = f"{host}/api/{API_VERSION}/sites/{site_id}/datasources?pageSize={page_size}&pageNumber={page_number}"
+        r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+        r.raise_for_status()
+        body = r.json()
+        ds_list = body.get("datasources", {}).get("datasource", [])
+        all_datasources.extend(ds_list)
+        pagination = body.get("datasources", {}).get("pagination", {})
+        total = int(pagination.get("totalAvailable", 0))
+        if page_number * page_size >= total or not ds_list:
+            break
+        page_number += 1
+    # exact match first, then case-insensitive fallback
+    for ds in all_datasources:
         if ds["name"] == datasource_name:
+            return ds["id"]
+    for ds in all_datasources:
+        if ds["name"].lower() == datasource_name.lower():
             return ds["id"]
     raise ValueError(f"Datasource '{datasource_name}' not found")
 
@@ -1835,6 +1850,9 @@ def api_hello():
 @app.route('/copy-definitions', methods=['POST'])
 def copy_definitions():
     """Handle the form submission and copy pulse definitions"""
+    import queue as _queue
+    import threading
+
     data = request.get_json()
 
     source_host = data.get('source_host', '').strip()
@@ -1848,102 +1866,101 @@ def copy_definitions():
     definition_ids = data.get('definition_ids', '').strip() or 'all'
     follow_self = data.get('follow_self', False)
 
-    def generate():
-        def emit(msg, success=True):
-            yield _ndjson_line({'type': 'progress', 'success': success, 'message': msg})
+    _DONE = object()
 
-        def emit_error(msg):
-            yield _ndjson_line({'type': 'error', 'success': False, 'error': msg})
-
+    def worker(q):
+        """Run all blocking API calls in a background thread, putting messages on the queue."""
         token_a = token_b = None
+        def put(msg):
+            q.put(msg)
+        def progress(msg, success=True):
+            put({'type': 'progress', 'success': success, 'message': msg})
+        def error(msg):
+            put({'type': 'error', 'success': False, 'error': msg})
+
         try:
             required_fields = [source_host, source_content_url, source_datasource,
                                 dest_host, dest_content_url, dest_datasource]
             if not all(required_fields):
-                yield from emit_error('All host, content URL, and datasource fields are required')
+                error('All host, content URL, and datasource fields are required')
                 return
 
-            # Sign in to source
-            yield from emit('🔐 Signing in to source site...')
+            progress('🔐 Signing in to source site...')
             try:
                 if source_auth_method == 'u':
                     source_username = data.get('source_username', '').strip()
                     source_password = data.get('source_password', '').strip()
                     if not source_username or not source_password:
-                        yield from emit_error('Source username and password are required')
+                        error('Source username and password are required')
                         return
                     token_a, site_id_a, _ = sign_in_rest(source_host, source_content_url, source_username, source_password)
                 elif source_auth_method == 'p':
                     source_pat_name = data.get('source_pat_name', '').strip()
                     source_pat_secret = data.get('source_pat_secret', '').strip()
                     if not source_pat_name or not source_pat_secret:
-                        yield from emit_error('Source PAT name and secret are required')
+                        error('Source PAT name and secret are required')
                         return
                     token_a, site_id_a, _ = sign_in_rest(source_host, source_content_url,
                                                          pat_name=source_pat_name, pat_secret=source_pat_secret)
                 else:
-                    yield from emit_error('Invalid source authentication method')
+                    error('Invalid source authentication method')
                     return
             except Exception as e:
-                yield from emit_error(f'Source authentication failed: {str(e)}')
+                error(f'Source authentication failed: {str(e)}')
                 return
-            yield from emit('✅ Signed in to source site')
+            progress('✅ Signed in to source site')
 
-            # Sign in to destination
-            yield from emit('🔐 Signing in to destination site...')
+            progress('🔐 Signing in to destination site...')
             try:
                 if dest_auth_method == 'u':
                     dest_username = data.get('dest_username', '').strip()
                     dest_password = data.get('dest_password', '').strip()
                     if not dest_username or not dest_password:
-                        yield from emit_error('Destination username and password are required')
+                        error('Destination username and password are required')
                         return
                     token_b, site_id_b, dest_user_id = sign_in_rest(dest_host, dest_content_url, dest_username, dest_password)
                 elif dest_auth_method == 'p':
                     dest_pat_name = data.get('dest_pat_name', '').strip()
                     dest_pat_secret = data.get('dest_pat_secret', '').strip()
                     if not dest_pat_name or not dest_pat_secret:
-                        yield from emit_error('Destination PAT name and secret are required')
+                        error('Destination PAT name and secret are required')
                         return
                     token_b, site_id_b, dest_user_id = sign_in_rest(dest_host, dest_content_url,
                                                                      pat_name=dest_pat_name, pat_secret=dest_pat_secret)
                 else:
-                    yield from emit_error('Invalid destination authentication method')
+                    error('Invalid destination authentication method')
                     return
             except Exception as e:
-                yield from emit_error(f'Destination authentication failed: {str(e)}')
+                error(f'Destination authentication failed: {str(e)}')
                 return
-            yield from emit('✅ Signed in to destination site')
+            progress('✅ Signed in to destination site')
 
-            # Get datasource IDs
-            yield from emit(f'🔍 Looking up source datasource: {source_datasource}...')
+            progress(f'🔍 Looking up source datasource: {source_datasource}...')
             try:
                 datasource_id_a = get_datasource_id_rest(source_host, token_a, site_id_a, source_datasource)
-                yield from emit(f'✅ Found source datasource: {source_datasource}')
+                progress(f'✅ Found source datasource: {source_datasource}')
             except Exception as e:
-                yield from emit_error(f'Source datasource lookup failed: {str(e)}')
+                error(f'Source datasource lookup failed: {str(e)}')
                 return
 
-            yield from emit(f'🔍 Looking up destination datasource: {dest_datasource}...')
+            progress(f'🔍 Looking up destination datasource: {dest_datasource}...')
             try:
                 datasource_id_b = get_datasource_id_rest(dest_host, token_b, site_id_b, dest_datasource)
-                yield from emit(f'✅ Found destination datasource: {dest_datasource}')
+                progress(f'✅ Found destination datasource: {dest_datasource}')
             except Exception as e:
-                yield from emit_error(f'Destination datasource lookup failed: {str(e)}')
+                error(f'Destination datasource lookup failed: {str(e)}')
                 return
 
-            # Get definitions to copy
             try:
                 definition_ids_to_copy = get_definitions_to_copy(source_host, token_a, datasource_id_a, definition_ids)
                 if not definition_ids_to_copy:
-                    yield from emit_error('No definitions found to copy')
+                    error('No definitions found to copy')
                     return
-                yield from emit(f'✅ Found {len(definition_ids_to_copy)} definition(s) to copy')
+                progress(f'✅ Found {len(definition_ids_to_copy)} definition(s) to copy')
             except Exception as e:
-                yield from emit_error(f'Definition lookup failed: {str(e)}')
+                error(f'Definition lookup failed: {str(e)}')
                 return
 
-            # Copy each definition
             copied_count = 0
             failed_count = 0
             results = []
@@ -1958,7 +1975,7 @@ def copy_definitions():
                     if new_definition and "definition" in new_definition and "metadata" in new_definition["definition"]:
                         copied_count += 1
                         results.append({'success': True, 'message': f'✅ Created: {def_name}'})
-                        yield from emit(f'✅ Created: {def_name}')
+                        progress(f'✅ Created: {def_name}')
 
                         if follow_self:
                             try:
@@ -1971,28 +1988,28 @@ def copy_definitions():
                                 if default_metric_id:
                                     add_follower_for_swap(dest_host, default_metric_id, dest_user_id, token_b)
                                     results.append({'success': True, 'message': f'  ↳ 👤 You are now following: {def_name}'})
-                                    yield from emit(f'  ↳ 👤 You are now following: {def_name}')
+                                    progress(f'  ↳ 👤 You are now following: {def_name}')
                                 else:
                                     results.append({'success': False, 'message': f'  ↳ ⚠️ Could not find default metric for: {def_name}'})
-                                    yield from emit(f'  ↳ ⚠️ Could not find default metric for: {def_name}', success=False)
+                                    progress(f'  ↳ ⚠️ Could not find default metric for: {def_name}', success=False)
                             except Exception as e:
                                 results.append({'success': False, 'message': f'  ↳ ⚠️ Follow failed for {def_name}: {str(e)}'})
-                                yield from emit(f'  ↳ ⚠️ Follow failed for {def_name}: {str(e)}', success=False)
+                                progress(f'  ↳ ⚠️ Follow failed for {def_name}: {str(e)}', success=False)
                     else:
                         failed_count += 1
                         results.append({'success': False, 'message': f'❌ Failed to create: {def_name}'})
-                        yield from emit(f'❌ Failed to create: {def_name}', success=False)
+                        progress(f'❌ Failed to create: {def_name}', success=False)
 
                 except Exception as e:
                     failed_count += 1
                     results.append({'success': False, 'message': f'❌ Error copying definition {def_id}: {str(e)}'})
-                    yield from emit(f'❌ Error copying definition {def_id}: {str(e)}', success=False)
+                    progress(f'❌ Error copying definition {def_id}: {str(e)}', success=False)
 
             summary = f"Completed! {copied_count} definition(s) copied successfully"
             if failed_count > 0:
                 summary += f", {failed_count} failed"
 
-            yield _ndjson_line({
+            put({
                 'type': 'complete',
                 'success': True,
                 'results': results,
@@ -2004,12 +2021,26 @@ def copy_definitions():
         except Exception as e:
             tb_str = traceback.format_exc()
             print(f"ERROR in copy_definitions: {tb_str}")
-            yield _ndjson_line({'type': 'error', 'success': False, 'error': f'Unexpected error: {str(e)}'})
+            error(f'Unexpected error: {str(e)}')
         finally:
             if token_a:
                 force_sign_out(source_host, token_a)
             if token_b:
                 force_sign_out(dest_host, token_b)
+            q.put(_DONE)
+
+    def generate():
+        q = _queue.Queue()
+        t = threading.Thread(target=worker, args=(q,), daemon=True)
+        t.start()
+        while True:
+            try:
+                msg = q.get(timeout=5)
+                if msg is _DONE:
+                    break
+                yield _ndjson_line(msg)
+            except _queue.Empty:
+                yield _ndjson_line({'type': 'heartbeat'})
 
     return Response(stream_with_context(generate()), mimetype='application/x-ndjson')
 
