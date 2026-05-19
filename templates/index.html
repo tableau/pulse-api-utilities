@@ -2050,30 +2050,58 @@
         // Form submissions for each utility
         async function submitCopyDefinitions(event) {
             event.preventDefault();
-            
+
             const formData = new FormData(event.target);
             const data = Object.fromEntries(formData.entries());
             data.follow_self = document.getElementById('follow_self').checked;
 
-            // Clear previous results and show new progress
             clearPreviousResults();
             showProgress('🚀 Starting copy process...', '📊 Copy Results');
-            
+
+            const progressDiv = document.getElementById('progress');
+            const copyResults = document.getElementById('copyResults');
+            copyResults.innerHTML = '';
+
             try {
                 const response = await fetch('/copy-definitions', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
                 });
-                
-                const result = await safeJsonParse(response);
-                
-                if (result.success) {
-                    showResults(result, '✅ Copy process completed!');
-                } else {
-                    showError(result.error || 'Unknown error occurred', '❌ Copy process failed');
+
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status}`);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        let msg;
+                        try { msg = JSON.parse(line); } catch { continue; }
+
+                        if (msg.type === 'progress') {
+                            const icon = msg.success ? '✅' : '⚠️';
+                            copyResults.innerHTML += `<div class="result-item ${msg.success ? 'success' : 'error'}">${icon} ${msg.message}</div>`;
+                            progressDiv.innerHTML = `<div class="loading"></div><span style="margin-left:10px;">${msg.message}</span>`;
+                            document.getElementById('results').style.display = 'block';
+                        } else if (msg.type === 'error' || (msg.success === false && msg.error)) {
+                            showError(msg.error || 'Unknown error occurred', '❌ Copy process failed', msg);
+                            return;
+                        } else if (msg.type === 'complete') {
+                            showResults(msg, '✅ Copy process completed!');
+                        }
+                    }
                 }
             } catch (error) {
                 console.error('Error:', error);
