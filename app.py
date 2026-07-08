@@ -106,7 +106,8 @@ def get_datasource_id_rest(host, token, site_id, datasource_name):
     for ds in all_datasources:
         if ds["name"].lower() == datasource_name.lower():
             return ds["id"]
-    raise ValueError(f"Datasource '{datasource_name}' not found")
+    available = ', '.join(sorted(ds['name'] for ds in all_datasources)) or '(none)'
+    raise ValueError(f"Datasource '{datasource_name}' not found. Available: {available}")
 
 def get_all_datasources_rest(host, token, site_id, api_version):
     """Get all datasources on the site and return ID-to-name mapping"""
@@ -1050,7 +1051,8 @@ def authenticate_tableau_rest(server_url, api_version, site_content_url, auth_me
             else:
                 return {'success': False, 'error': 'Could not extract authentication token from response'}
         else:
-            return {'success': False, 'error': f'Authentication failed with status code: {response.status_code}'}
+            detail = response.text[:500] if response.text else ''
+            return {'success': False, 'error': f'Authentication failed with status code: {response.status_code}. Response: {detail}'}
             
     except Exception as e:
         return {'success': False, 'error': f'Authentication error: {str(e)}'}
@@ -3462,23 +3464,24 @@ def export_definitions():
         
         results.append({'success': True, 'message': '🚀 Starting Definition Export...'})
         results.append({'success': True, 'message': f'📋 Export mode: {export_mode.upper()}'})
-        
+
         # Authenticate
         results.append({'success': True, 'message': '🔐 Authenticating with Tableau Server...'})
-        
-        auth_result = authenticate_tableau_rest(
-            server_url, api_version, site_content_url, auth_method,
-            username, password, pat_name, pat_token
-        )
-        
-        if not auth_result['success']:
+
+        try:
+            if auth_method == 'pat':
+                auth_token, site_id, _ = sign_in_rest(
+                    server_url, site_content_url, pat_name=pat_name, pat_secret=pat_token
+                )
+            else:
+                auth_token, site_id, _ = sign_in_rest(
+                    server_url, site_content_url, username=username, password=password
+                )
+        except Exception as e:
             return jsonify({
                 'success': False,
-                'error': f"Authentication failed: {auth_result['error']}"
+                'error': f"Authentication failed: {str(e)}"
             })
-        
-        auth_token = auth_result['auth_token']
-        site_id = auth_result.get('site_id', '')
         results.append({'success': True, 'message': '✅ Authentication successful!'})
         
         # Get all definitions
